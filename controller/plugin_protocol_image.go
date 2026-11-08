@@ -2,9 +2,11 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,23 +18,27 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
 // serveTaskPluginImageProtocol answers an OpenAI Images API request that a
-// task plugin claimed. The API is synchronous: the durable submission runs
-// first on a context that survives a client disconnect, an asynchronous
-// upstream task is then polled inside the request until it is terminal or the
-// protocol timeout elapses, and the plugin's render hook finally shapes the
-// OpenAI image response from the terminal task.
+// task plugin claimed. The durable submission runs first on a context that
+// survives a client disconnect. Background requests return that task at once;
+// synchronous requests poll it until terminal and render the final response.
 func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEndpoint, deps pluginProtocolBridgeDeps) {
 	deps = deps.withDefaults()
 	requestValue, exists := c.Get(pluginruntime.ContextKeyProtocolRequest)
 	protocolRequest, ok := requestValue.(pluginruntime.ProtocolRequestContext)
 	if !exists || !ok || protocolRequest.Protocol != pinned.Protocol || pinned.Plugin == nil {
 		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		return
+	}
+	imageRequest, err := taskPluginImageBillingRequest(protocolRequest)
+	if err != nil {
+		respondPluginProtocolError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	clientRequest := c.Request
@@ -57,10 +63,11 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 			cancelSubmission()
 		}()
 
-		relayInfo, relayInfoErr = relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
+		relayInfo, relayInfoErr = relaycommon.GenRelayInfo(c, types.RelayFormatOpenAIImage, imageRequest, nil)
 		if relayInfoErr != nil {
 			return
 		}
+		relayInfo.TaskRelayInfo = &relaycommon.TaskRelayInfo{}
 		relayInfo.IsStream = false
 		relayInfo.OriginModelName = c.GetString("resolved_task_model")
 		if action := c.GetString("task_action"); action != "" {
@@ -94,7 +101,8 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 		return
 	}
 	task := outcome.Task
-	if task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure {
+	asynchronous := taskPluginImageAsyncRequest(protocolRequest)
+	if !asynchronous && task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure {
 		if taskErr = waitTaskPluginImageTask(c, task, deps); taskErr != nil {
 			if c.Request.Context().Err() == nil {
 				respondTaskPluginImageError(c, taskErr)
@@ -102,7 +110,7 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 			return
 		}
 	}
-	if task.Status == model.TaskStatusFailure {
+	if !asynchronous && task.Status == model.TaskStatusFailure {
 		reason := strings.TrimSpace(task.FailReason)
 		if reason == "" {
 			reason = "image generation failed"
@@ -132,8 +140,17 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 		return
 	}
 	response, ok := payload.(map[string]any)
+	if !ok {
+		logger.LogError(c, common.LogText("task protocol image render hook must return an object"))
+		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		return
+	}
+	if asynchronous {
+		c.JSON(http.StatusOK, response)
+		return
+	}
 	data, hasData := response["data"].([]any)
-	if !ok || !hasData {
+	if !hasData {
 		logger.LogError(c, common.LogText("task protocol image render hook must return an object with a data array"))
 		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
 		return
@@ -166,6 +183,82 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 		}
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+func taskPluginImageBillingRequest(request pluginruntime.ProtocolRequestContext) (*kitdto.ImageRequest, error) {
+	imageRequest := &kitdto.ImageRequest{Model: request.Model}
+	body, ok := request.Body.(map[string]any)
+	if !ok {
+		return nil, errors.New("image request body is invalid")
+	}
+	switch body["kind"] {
+	case string(pluginruntime.BodyJSON):
+		value, ok := body["value"].(map[string]any)
+		if !ok {
+			return nil, errors.New("image request body is invalid")
+		}
+		encoded, err := common.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if err = common.Unmarshal(encoded, imageRequest); err != nil {
+			return nil, err
+		}
+	case string(pluginruntime.BodyMultipart), string(pluginruntime.BodyForm):
+		fields, ok := body["fields"].(map[string][]string)
+		if !ok {
+			return nil, errors.New("image request fields are invalid")
+		}
+		first := func(name string) string {
+			if values := fields[name]; len(values) > 0 {
+				return values[0]
+			}
+			return ""
+		}
+		imageRequest.Model = first("model")
+		imageRequest.Size = first("size")
+		imageRequest.Quality = first("quality")
+		if rawN := strings.TrimSpace(first("n")); rawN != "" {
+			n, err := strconv.ParseUint(rawN, 10, 64)
+			if err != nil || n > kitdto.MaxImageN {
+				return nil, fmt.Errorf("n must be an integer between 1 and %d", kitdto.MaxImageN)
+			}
+			count := uint(n)
+			imageRequest.N = &count
+		}
+		if parameters := strings.TrimSpace(first("parameters")); parameters != "" {
+			imageRequest.Extra = map[string]json.RawMessage{"parameters": json.RawMessage(parameters)}
+		}
+	default:
+		return nil, errors.New("image request body is invalid")
+	}
+	if imageRequest.Model == "" {
+		imageRequest.Model = request.Model
+	}
+	if raw, exists := imageRequest.Extra["parameters"]; exists {
+		parameters := &kitdto.ImageBillingParameters{}
+		if err := common.Unmarshal(raw, parameters); err != nil {
+			return nil, fmt.Errorf("invalid image parameters: %w", err)
+		}
+		imageRequest.BillingParameters = parameters
+	}
+	if _, err := imageRequest.ImageCount(false); err != nil {
+		return nil, err
+	}
+	return imageRequest, nil
+}
+
+func taskPluginImageAsyncRequest(request pluginruntime.ProtocolRequestContext) bool {
+	body, ok := request.Body.(map[string]any)
+	if !ok || body["kind"] != string(pluginruntime.BodyJSON) {
+		return false
+	}
+	value, ok := body["value"].(map[string]any)
+	if !ok {
+		return false
+	}
+	async, _ := value["async"].(bool)
+	return async
 }
 
 // waitTaskPluginImageTask polls an asynchronous image task inside the client

@@ -19,6 +19,8 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
+	kittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -1605,7 +1607,7 @@ func pluginProtocolRetrieveDeps(pinned pluginruntime.PinnedEndpoint, task *model
 }
 
 const imageProtocolTestPlugin = `
-export const meta = {apiVersion:1,key:"image-bridge",name:"Image Bridge",version:"1.0.0",author:{name:"Test"},models:["image-model"],fetchMode:"per_task",protocols:["openai_image"]};
+export const meta = {apiVersion:1,key:"image-bridge",name:"Image Bridge",version:"1.0.0",author:{name:"Test"},models:["image-model"],fetchMode:"per_task",protocols:[{name:"openai_image",supports:["sync","background"]}]};
 export function buildSubmitRequest(ctx){return {url:ctx.baseUrl+"/images"};}
 export function parseSubmitResponse(ctx,resp){return {taskId:"vendor"};}
 export function buildQueryRequest(){return {url:"https://provider.example"};}
@@ -1613,6 +1615,7 @@ export function parseTaskResult(){return {status:"SUCCESS"};}
 export const protocols = {openai_image: {
   decodeRequest: function(ctx) { return {kind:"submit", model: ctx.model, requestBody: ctx.body.value}; },
   render: function(ctx, task) {
+    if (ctx.body.value["async"] === true) return {id: task.task_id, status: "queued"};
     const data = (task.data && task.data.images || []).map(function(url) { return {url: url}; });
     return {data: data, vendor: "test"};
   },
@@ -1625,11 +1628,46 @@ func imageProtocolTestEndpoint(t *testing.T) pluginruntime.PinnedEndpoint {
 	require.NoError(t, err)
 	return pluginruntime.PinnedEndpoint{
 		Generation: &pluginruntime.RoutingGeneration{Number: 7},
-		Plugin:     &pluginruntime.LoadedPlugin{Meta: pluginruntime.Meta{Key: "image-bridge", Version: "1.0.0", Protocols: []pluginruntime.ProtocolClaim{{Name: pluginruntime.ProtocolOpenAIImage}}}, Engine: engine},
+		Plugin:     &pluginruntime.LoadedPlugin{Meta: pluginruntime.Meta{Key: "image-bridge", Version: "1.0.0", Protocols: []pluginruntime.ProtocolClaim{{Name: pluginruntime.ProtocolOpenAIImage, Supports: []string{"sync", "background"}}}}, Engine: engine},
 		Protocol:   pluginruntime.ProtocolOpenAIImage,
 		Operation:  pluginruntime.HostProtocolOperation{Name: "generate", Methods: []string{http.MethodPost}, Path: "/v1/images/generations", BodyKinds: []pluginruntime.BodyKind{pluginruntime.BodyJSON}, ModelField: "model"},
 		Model:      "image-model",
 	}
+}
+
+func TestServeTaskPluginImageProtocolReturnsAsyncTaskWithoutPolling(t *testing.T) {
+	pinned := imageProtocolTestEndpoint(t)
+	c, recorder := newImageProtocolTestContext("")
+	request := c.MustGet(pluginruntime.ContextKeyProtocolRequest).(pluginruntime.ProtocolRequestContext)
+	request.Body.(map[string]any)["value"].(map[string]any)["async"] = true
+	c.Set(pluginruntime.ContextKeyProtocolRequest, request)
+
+	deps := pluginProtocolTestDeps()
+	polls := 0
+	deps.pollTask = func(context.Context, *model.Task) error {
+		polls++
+		return nil
+	}
+	deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		assert.Equal(t, kittypes.RelayFormat(kittypes.RelayFormatOpenAIImage), info.RelayFormat)
+		imageRequest, ok := info.Request.(*kitdto.ImageRequest)
+		require.True(t, ok)
+		assert.Equal(t, "image-model", imageRequest.Model)
+		assert.Equal(t, "a cat", imageRequest.Prompt)
+		count, err := imageRequest.ImageCount(false)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+		return imageProtocolTestOutcome(info, model.TaskStatusSubmitted), nil
+	}
+
+	serveTaskPluginImageProtocol(c, pinned, deps)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.Zero(t, polls)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, "task_image", response["id"])
+	assert.Equal(t, "queued", response["status"])
+	assert.NotContains(t, response, "data")
 }
 
 func newImageProtocolTestContext(responseFormat string) (*gin.Context, *httptest.ResponseRecorder) {

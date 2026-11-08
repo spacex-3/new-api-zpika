@@ -638,7 +638,7 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 		candidates := pinnedEndpoint.Candidates
 		binding := candidates[0]
 		if definition, known := pluginruntime.HostProtocol(binding.Protocol); known && len(definition.DefinedModes()) > 0 {
-			stream, background := jsonBodyBoolFlags(c)
+			stream, background := jsonBodyBoolFlags(c, binding.Protocol)
 			required := make([]string, 0, 2)
 			if stream {
 				required = append(required, "stream")
@@ -695,7 +695,7 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 	}
 }
 
-func jsonBodyBoolFlags(c *gin.Context) (stream, background bool) {
+func jsonBodyBoolFlags(c *gin.Context, protocol string) (stream, background bool) {
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return false, false
@@ -704,8 +704,9 @@ func jsonBodyBoolFlags(c *gin.Context) (stream, background bool) {
 	if err != nil {
 		return false, false
 	}
-	values := ojson.GetManyBytes(requestBody, "stream", "background")
-	return values[0].Type == ojson.True, values[1].Type == ojson.True
+	values := ojson.GetManyBytes(requestBody, "stream", "background", "async")
+	asyncImage := protocol == pluginruntime.ProtocolOpenAIImage && values[2].Type == ojson.True
+	return values[0].Type == ojson.True, values[1].Type == ojson.True || asyncImage
 }
 
 func unsupportedProtocolFormMessage(candidates []pluginruntime.ProtocolBinding, protocol string, stream, background bool) string {

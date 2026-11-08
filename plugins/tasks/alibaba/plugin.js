@@ -370,7 +370,7 @@ export const meta = {
   protocols: [
     { name: "openai_responses", supports: ["stream", "sync", "background"] },
     { name: "openai_video", models: Object.keys(WAN_MODELS).concat(["wan2.7-t2v-2026-04-25", "wan2.7-t2v-2026-06-12", "wan2.7-i2v-2026-04-25"]) },
-    { name: "openai_image", models: Object.keys(IMAGE_MODELS).concat(IMAGE_MODEL_SNAPSHOTS) },
+    { name: "openai_image", models: Object.keys(IMAGE_MODELS).concat(IMAGE_MODEL_SNAPSHOTS), supports: ["sync"] },
   ],
 };
 

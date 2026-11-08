@@ -317,10 +317,14 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 				if !overridden && entry.Effective["billing_setting.billing_mode"] == billing_setting.BillingModeTieredExpr {
 					expression, _ = entry.Effective["billing_setting.billing_expr"].(string)
 				}
+				compatible := billing_setting.TaskExprCompatible(expression, schema)
+				if !overridden && billing_setting.UsesNativeImageRequestPricing(plugin, name, expression) {
+					compatible = true
+				}
 				entry.PluginVariants = append(entry.PluginVariants, ModelPricingPluginVariant{
 					PluginKey: plugin.Meta.Key, PluginName: plugin.Meta.Name, Icon: plugin.Meta.Icon,
 					UsageSchema: schema, UsageExamples: examples, Configured: configuredExpr, Effective: expression,
-					Compatible: billing_setting.TaskExprCompatible(expression, schema),
+					Compatible: compatible,
 				})
 			}
 		}
@@ -563,7 +567,12 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 						continue
 					}
 					schema, _ := plugin.Meta.UsageForModel(name)
-					if err = billing_setting.SmokeTestTaskExpr(expression, schema); err != nil {
+					if billing_setting.UsesNativeImageRequestPricing(plugin, name, expression) {
+						err = billing_setting.SmokeTestExpr(expression)
+					} else {
+						err = billing_setting.SmokeTestTaskExpr(expression, schema)
+					}
+					if err != nil {
 						return fmt.Errorf("model %s: plugin %s: %w", name, plugin.Meta.Key, err)
 					}
 				}

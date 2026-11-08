@@ -334,6 +334,59 @@ func TestExecuteTaskSubmissionHonorsRouteRetainResult(t *testing.T) {
 	}
 }
 
+func TestExecuteTaskSubmissionRetainsImmediateAsyncImageResult(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		asynchronous  bool
+		wantDiscarded bool
+	}{
+		{name: "synchronous image", wantDiscarded: true},
+		{name: "asynchronous image", asynchronous: true, wantDiscarded: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			events := make([]string, 0, 3)
+			database := setupTaskSubmissionDatabase(t, true, &events)
+			previousLogConsumeEnabled := common.LogConsumeEnabled
+			common.LogConsumeEnabled = false
+			t.Cleanup(func() { common.LogConsumeEnabled = previousLogConsumeEnabled })
+
+			c := taskSubmissionTestContext()
+			c.Set(pluginruntime.ContextKeyPinnedEndpoint, pluginruntime.PinnedEndpoint{Protocol: pluginruntime.ProtocolOpenAIImage})
+			c.Set(pluginruntime.ContextKeyProtocolRequest, pluginruntime.ProtocolRequestContext{
+				RouteRequestContext: pluginruntime.RouteRequestContext{Body: map[string]any{
+					"kind": string(pluginruntime.BodyJSON),
+					"value": map[string]any{
+						"async": testCase.asynchronous,
+					},
+				}},
+			})
+			info := taskSubmissionRelayInfo(&taskSubmissionTestBilling{events: &events})
+			upstream := []byte(`{"data":[{"url":"https://cdn.example/a.png"}]}`)
+
+			outcome, taskErr := executeTaskSubmissionWith(c, info, func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+				return &relay.TaskSubmitResult{
+					UpstreamTaskID: "upstream_private",
+					Platform:       constant.TaskPlatform("image-plugin"),
+					TaskData:       upstream,
+					Immediate:      &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%"},
+				}, nil
+			})
+			require.Nil(t, taskErr)
+			require.NotNil(t, outcome)
+			assert.Equal(t, testCase.wantDiscarded, outcome.Task.PrivateData.ResultDiscarded)
+
+			var stored model.Task
+			require.NoError(t, database.Where("task_id = ?", outcome.Task.TaskID).First(&stored).Error)
+			assert.Equal(t, testCase.wantDiscarded, stored.PrivateData.ResultDiscarded)
+			if testCase.wantDiscarded {
+				assert.Empty(t, stored.Data)
+			} else {
+				assert.JSONEq(t, string(upstream), string(stored.Data))
+			}
+		})
+	}
+}
+
 func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing.T) {
 	events := make([]string, 0, 2)
 	setupTaskSubmissionDatabase(t, true, &events)

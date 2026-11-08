@@ -424,6 +424,12 @@ completion hook retain their submission values. The same expression is then
 evaluated again; a changed fact can therefore produce a settlement delta and a
 different matched tier. Evaluation failure keeps the pre-consumed charge.
 
+Task plugins serving a model through the OpenAI Images protocol inherit its
+ordinary model-level fixed-price expression when no provider override exists.
+The plugin freezes the validated scalar image options, so `param()` conditions
+and `image_count` use the same values at submission and task settlement. Other
+task protocols continue to use the model's task usage expression.
+
 ---
 
 ## Architecture

@@ -1749,6 +1749,24 @@ func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing
 	assert.NotContains(t, other, "seconds")
 }
 
+func TestEvaluateTaskCompletionUsageKeepsNativeImageFixedPricing(t *testing.T) {
+	expression := `param("quality") == "xhigh" ? tier("xhigh", fixed(5.4)) * image_count : tier("std", fixed(2.7)) * image_count`
+	snapshot := &billingexpr.BillingSnapshot{
+		ExprString:   expression,
+		ExprHash:     billingexpr.ExprHashString(expression),
+		GroupRatio:   1,
+		QuotaPerUnit: 500000,
+		ExprVersion:  1,
+		UsageFacts:   map[string]any{"n": float64(2), "quality": "xhigh"},
+	}
+
+	result, facts, err := EvaluateTaskCompletionUsage(snapshot, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "xhigh", result.MatchedTier)
+	assert.Equal(t, 5400000, result.ActualQuotaAfterGroup)
+	assert.Equal(t, map[string]any{"n": float64(2), "quality": "xhigh"}, facts)
+}
+
 func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
 	previousRatios := ratio_setting.ModelRatio2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":1}`))

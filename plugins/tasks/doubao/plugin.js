@@ -328,7 +328,7 @@ export const meta = {
   protocols: [
     { name: "openai_responses", supports: ["stream", "sync", "background"] },
     { name: "openai_video", models: Object.keys(VIDEO_MODELS) },
-    { name: "openai_image", models: Object.keys(IMAGE_MODELS) },
+    { name: "openai_image", models: Object.keys(IMAGE_MODELS), supports: ["sync"] },
   ],
 };
 

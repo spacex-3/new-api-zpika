@@ -2038,6 +2038,50 @@ test('model configuration is available for a plugin channel without upstream dis
   expect(trigger).toBeDisabled()
 })
 
+test('a New API-only task plugin fetches and selects only upstream models', async () => {
+  pluginOptions = [
+    ...plugins,
+    {
+      key: 'cangyuan-test',
+      name: 'Cangyuan Test',
+      icon: 'text:CY',
+      baseUrl: 'https://cangyuan.example',
+      models: ['image-a', 'image-b', 'video-a'],
+      upstreams: ['new_api'],
+    },
+  ]
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({
+      data: { success: true, data: ['image-a', 'image-b'] },
+    })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness />)
+
+  await user.click(await screen.findByRole('option', { name: /Cangyuan Test/ }))
+  expect(
+    screen.getByRole('button', { name: 'Configure Models' })
+  ).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('API Key *'), {
+    target: { value: 'cangyuan-key' },
+  })
+  await user.click(screen.getByRole('button', { name: 'Fetch from Upstream' }))
+
+  expect(await screen.findByRole('checkbox', { name: 'image-a' })).toBeVisible()
+  expect(screen.getByRole('checkbox', { name: 'image-b' })).toBeVisible()
+  expect(
+    screen.queryByRole('checkbox', { name: 'video-a' })
+  ).not.toBeInTheDocument()
+  expect(post).toHaveBeenCalledWith(
+    '/api/channel/fetch_models',
+    expect.objectContaining({
+      type: 61,
+      task_plugin_key: 'cangyuan-test',
+    }),
+    expect.anything()
+  )
+})
+
 test('advanced custom edits preview draft connection settings with the saved key', async () => {
   editingChannel = {
     ...editingChannel,

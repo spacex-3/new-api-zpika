@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -195,6 +196,97 @@ func TestFetchOrdinaryOpenAIModelsKeepsExistingEmptyDataBehavior(t *testing.T) {
 	models, err := fetchChannelUpstreamModelIDs(channel)
 	require.NoError(t, err)
 	require.Empty(t, models)
+}
+
+func TestFetchNewAPIOnlyTaskPluginModelsFromUpstream(t *testing.T) {
+	const pluginKey = "model-list-new-api-only"
+	_, err := jsplugin.DefaultRegistry.Register(`
+export const meta = {apiVersion: 1, key: "model-list-new-api-only", name: "New API only", version: "1.0.0", author: {name: "Test"}, models: ["image-a", "image-b"], upstreams: ["new_api"], fetchMode: "per_task"};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`, jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(pluginKey)) })
+
+	authorization := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization <- r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"id":"image-a"},{"id":"unsupported-model"},{"id":"image-b"}]}`))
+	}))
+	defer server.Close()
+
+	baseURL := server.URL
+	channel := &model.Channel{Type: constant.ChannelTypeTaskPlugin, Key: "task-key", BaseURL: &baseURL}
+	channel.SetSetting(dto.ChannelSettings{TaskPluginKey: pluginKey})
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"image-a", "image-b"}, models)
+	assert.Equal(t, "Bearer task-key", <-authorization)
+}
+
+func TestFetchVendorCapableTaskPluginModelsRemainStatic(t *testing.T) {
+	const pluginKey = "model-list-vendor-capable"
+	_, err := jsplugin.DefaultRegistry.Register(`
+export const meta = {apiVersion: 1, key: "model-list-vendor-capable", name: "Vendor capable", version: "1.0.0", author: {name: "Test"}, models: ["video-a", "video-b"], upstreams: ["vendor", "new_api"], fetchMode: "per_task"};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`, jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(pluginKey)) })
+
+	baseURL := "http://127.0.0.1:1"
+	channel := &model.Channel{Type: constant.ChannelTypeTaskPlugin, Key: "task-key", BaseURL: &baseURL}
+	channel.SetSetting(dto.ChannelSettings{TaskPluginKey: pluginKey})
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"video-a", "video-b"}, models)
+}
+
+func TestFetchModelsTaskPluginCreatePreviewUsesPluginKey(t *testing.T) {
+	const pluginKey = "model-list-preview"
+	_, err := jsplugin.DefaultRegistry.Register(`
+export const meta = {apiVersion: 1, key: "model-list-preview", name: "Preview", version: "1.0.0", author: {name: "Test"}, models: ["image-a"], upstreams: ["new_api"], fetchMode: "per_task"};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`, jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(pluginKey)) })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"image-a"}]}`))
+	}))
+	defer server.Close()
+	baseURL := server.URL
+	body, err := common.Marshal(fetchModelsRequest{
+		BaseURL:       &baseURL,
+		Type:          constant.ChannelTypeTaskPlugin,
+		Key:           "preview-key",
+		TaskPluginKey: pluginKey,
+	})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	FetchModels(ctx)
+
+	var response struct {
+		Success bool     `json:"success"`
+		Message string   `json:"message"`
+		Data    []string `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success, response.Message)
+	assert.Equal(t, []string{"image-a"}, response.Data)
 }
 
 func TestFetchModelsAdvancedCustomCreatePreview(t *testing.T) {

@@ -795,6 +795,12 @@ export function ChannelMutateDrawer({
     boundTaskPlugin?.name ||
     (currentType === CHANNEL_TYPE_TASK_PLUGIN && currentTaskPluginKey) ||
     t(currentTypeLabel)
+  const taskPluginUsesNewAPIModelDiscovery =
+    currentType === CHANNEL_TYPE_TASK_PLUGIN &&
+    boundTaskPlugin?.upstreams?.includes('new_api') === true &&
+    !boundTaskPlugin.upstreams.includes('vendor')
+  const canFetchModels =
+    MODEL_FETCHABLE_TYPES.has(currentType) || taskPluginUsesNewAPIModelDiscovery
 
   const selectProvider = useCallback(
     (target: ChannelProviderTarget) => {
@@ -824,11 +830,16 @@ export function ChannelMutateDrawer({
         if (!isEditing && !providerTarget && !form.getValues('name').trim()) {
           form.setValue('name', plugin.name)
         }
-        if (plugin.models.length) {
-          form.setValue('models', formatModelsArray(plugin.models), {
-            shouldDirty: true,
-          })
-        }
+        const pluginUsesNewAPIModelDiscovery =
+          plugin.upstreams?.includes('new_api') === true &&
+          !plugin.upstreams.includes('vendor')
+        form.setValue(
+          'models',
+          pluginUsesNewAPIModelDiscovery
+            ? ''
+            : formatModelsArray(plugin.models),
+          { shouldDirty: true }
+        )
         const baseUrl = nextTaskPluginBaseUrl(
           form.getValues('base_url'),
           previousPlugin?.baseUrl,
@@ -1211,6 +1222,7 @@ export function ChannelMutateDrawer({
         key: previewKey,
         channel_id: isEditing ? channelId || undefined : undefined,
         base_url: currentBaseUrl || '',
+        task_plugin_key: currentTaskPluginKey,
         advanced_custom: currentAdvancedCustom,
         header_override: currentHeaderOverride,
         proxy: currentProxy,
@@ -1222,6 +1234,7 @@ export function ChannelMutateDrawer({
       isEditing,
       channelId,
       currentBaseUrl,
+      currentTaskPluginKey,
       currentAdvancedCustom,
       currentHeaderOverride,
       currentProxy,
@@ -1235,7 +1248,7 @@ export function ChannelMutateDrawer({
     enabled:
       open &&
       canDiscoverModels &&
-      MODEL_FETCHABLE_TYPES.has(currentType) &&
+      canFetchModels &&
       (!isEditing || Boolean(channelData?.data)),
     request: previewModels ? previewRequest : savedRequest,
   })
@@ -1248,7 +1261,7 @@ export function ChannelMutateDrawer({
   const fetchDiscoveredModels = discovery.fetch
   const handleFetchModels = useCallback(async () => {
     const type = form.getValues('type')
-    if (!MODEL_FETCHABLE_TYPES.has(type)) {
+    if (!canFetchModels) {
       toast.error(t('This channel type does not support fetching models'))
       return
     }
@@ -1270,7 +1283,14 @@ export function ChannelMutateDrawer({
       return
     }
     await fetchDiscoveredModels()
-  }, [isEditing, canDiscoverModels, form, t, fetchDiscoveredModels])
+  }, [
+    isEditing,
+    canFetchModels,
+    canDiscoverModels,
+    form,
+    t,
+    fetchDiscoveredModels,
+  ])
 
   // Handle model operations
   const handleFillRelatedModels = useCallback(() => {
@@ -2291,9 +2311,7 @@ export function ChannelMutateDrawer({
     </div>
   )
 
-  const upstreamModelDetectionFields = MODEL_FETCHABLE_TYPES.has(
-    currentType
-  ) && (
+  const upstreamModelDetectionFields = canFetchModels && (
     <div
       role='group'
       aria-label={t('Upstream Model Detection Settings')}
@@ -3293,7 +3311,7 @@ export function ChannelMutateDrawer({
               )}
             />
 
-            {MODEL_FETCHABLE_TYPES.has(currentType) && (
+            {canFetchModels && (
               <div aria-live='polite' className='mt-4 space-y-3'>
                 {discovery.status === 'loading' && (
                   <LoadingState
@@ -3449,7 +3467,7 @@ export function ChannelMutateDrawer({
                   <FileText className='mr-2 h-4 w-4' aria-hidden='true' />
                   {t('Fill Related Models')}
                 </Button>
-                {MODEL_FETCHABLE_TYPES.has(currentType) && (
+                {canFetchModels && (
                   <>
                     <Button
                       type='button'

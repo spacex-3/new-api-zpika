@@ -444,7 +444,27 @@ func EvaluateTaskCompletionUsage(snap *billingexpr.BillingSnapshot, facts map[st
 	usage := make(map[string]any, len(snap.UsageFacts)+len(facts))
 	maps.Copy(usage, snap.UsageFacts)
 	maps.Copy(usage, facts)
-	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usage})
+	body, marshalErr := common.Marshal(usage)
+	if marshalErr != nil {
+		return billingexpr.TieredResult{}, usage, marshalErr
+	}
+	request := billingexpr.RequestInput{Body: body, Usage: usage}
+	if !snap.TaskUsageBilling {
+		var count float64
+		switch value := usage["n"].(type) {
+		case int:
+			count = float64(value)
+		case int64:
+			count = float64(value)
+		case float64:
+			count = value
+		}
+		if count >= 1 && count <= dto.MaxImageN && math.Trunc(count) == count {
+			imageCount := int(count)
+			request.ImageCount = &imageCount
+		}
+	}
+	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, request)
 	if err == nil && (result.ActualQuotaBeforeGroup < 0 || math.IsNaN(result.ActualQuotaBeforeGroup)) {
 		err = fmt.Errorf("task completion expression produced an invalid cost")
 	}

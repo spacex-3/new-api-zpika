@@ -364,12 +364,21 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
+	var taskPluginModels map[string]struct{}
 	if channel.Type == constant.ChannelTypeTaskPlugin {
 		plugin, ok := jsplugin.DefaultRegistry.Get(channel.GetSetting().TaskPluginKey)
 		if !ok {
 			return nil, fmt.Errorf("task plugin %q is not registered", channel.GetSetting().TaskPluginKey)
 		}
-		return normalizeModelNames(plugin.Meta.Models), nil
+		newAPIOnly := slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindNewAPI) &&
+			!slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindVendor)
+		if !newAPIOnly {
+			return normalizeModelNames(plugin.Meta.Models), nil
+		}
+		taskPluginModels = make(map[string]struct{}, len(plugin.Meta.Models))
+		for _, name := range plugin.Meta.Models {
+			taskPluginModels[name] = struct{}{}
+		}
 	}
 	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
@@ -463,7 +472,14 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}
 		return item.ID
 	})
-	return normalizeModelNames(ids), nil
+	ids = normalizeModelNames(ids)
+	if taskPluginModels != nil {
+		ids = lo.Filter(ids, func(name string, _ int) bool {
+			_, supported := taskPluginModels[name]
+			return supported
+		})
+	}
+	return ids, nil
 }
 
 func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {

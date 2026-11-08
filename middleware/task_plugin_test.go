@@ -1802,6 +1802,26 @@ func TestPinTaskPluginEndpointRejectsUnsupportedRequestForms(t *testing.T) {
 	}
 }
 
+func TestJSONBodyBoolFlagsTreatsAsyncAsImageBackgroundOnly(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		protocol   string
+		background bool
+	}{
+		{name: "image async", protocol: jsplugin.ProtocolOpenAIImage, background: true},
+		{name: "responses async field", protocol: "openai_responses", background: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/test", strings.NewReader(`{"async":true}`))
+			stream, background := jsonBodyBoolFlags(c, testCase.protocol)
+			assert.False(t, stream)
+			assert.Equal(t, testCase.background, background)
+			common.CleanupBodyStorage(c)
+		})
+	}
+}
+
 func TestPinTaskPluginEndpointMalformedStreamStillFailsInPrepare(t *testing.T) {
 	const key = "form-gate-malformed-stream"
 	_, err := jsplugin.DefaultRegistry.Register(taskResponsesPluginSource(
@@ -1946,7 +1966,7 @@ func taskProtocolPluginSource(key, version, models, endpoint, parseRequestBody s
 	}
 	if endpoint == "/v1/images/edits" || endpoint == "/v1/images/generations" {
 		protocol = "openai_image"
-		protocolClaim = `"openai_image"`
+		protocolClaim = `{name: "openai_image", supports: ["sync", "background"]}`
 		presenters = `render: function() { return {data: []}; },`
 	}
 	return fmt.Sprintf(`

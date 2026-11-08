@@ -127,6 +127,30 @@ func ResolveTaskBillingExpr(pluginKey, model, mappedModel string) (string, bool)
 	return "", false
 }
 
+// UsesNativeImageRequestPricing reports whether a task plugin's OpenAI Images
+// endpoint can inherit the ordinary model-level fixed-price contract. The
+// plugin supplies execution and usage facts; it does not need a provider price
+// override for request parameters such as quality and image count.
+func UsesNativeImageRequestPricing(plugin *jsplugin.LoadedPlugin, model, expression string) bool {
+	if plugin == nil || !billingexpr.UsesFixedPricing(expression) || len(billingexpr.UsedUsageKeys(expression)) != 0 {
+		return false
+	}
+	for _, claim := range plugin.Meta.Protocols {
+		if claim.Name != jsplugin.ProtocolOpenAIImage {
+			continue
+		}
+		if len(claim.Models) == 0 {
+			return true
+		}
+		for _, declared := range claim.Models {
+			if strings.EqualFold(declared, model) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // TaskExprCompatible checks the schema contract even for usage references in
 // branches that the current request would not evaluate.
 func TaskExprCompatible(expression string, schema map[string]jsplugin.UsageFieldSchema) bool {

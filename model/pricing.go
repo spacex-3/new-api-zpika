@@ -415,7 +415,12 @@ func updatePricing() {
 				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr {
 					mode = billing_setting.BillingModeTieredExpr
 				}
-				if mode == billing_setting.BillingModeTieredExpr && !billing_setting.TaskExprCompatible(expression, schema) {
+				_, overridden := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model)
+				compatible := billing_setting.TaskExprCompatible(expression, schema)
+				if !overridden && billing_setting.UsesNativeImageRequestPricing(provider, model, expression) {
+					compatible = true
+				}
+				if mode == billing_setting.BillingModeTieredExpr && !compatible {
 					expression = ""
 				}
 				pricing.BillingPluginVariants = append(pricing.BillingPluginVariants, PricingPluginVariant{

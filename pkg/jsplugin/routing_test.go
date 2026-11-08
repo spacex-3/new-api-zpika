@@ -96,20 +96,19 @@ func TestLookupHostProtocolOperationExcludesRetrieveWithoutModelField(t *testing
 		require.True(t, found, path)
 		assert.Equal(t, ProtocolOpenAIImage, protocol)
 		assert.Equal(t, "model", operation.ModelField)
-		assert.Empty(t, operation.Modes, "the synchronous image protocol has no request modes")
+		assert.Equal(t, []ProtocolMode{{Name: "sync", Hook: "render"}, {Name: "background", Hook: "render"}}, operation.Modes)
 	}
 }
 
-// The OpenAI Images protocol is claimed in bare-string form, binds both image
-// endpoints for every declared model, and requires the render hook that shapes
-// the synchronous response.
+// The OpenAI Images protocol binds both image endpoints for every declared
+// model and requires the render hook that shapes sync and background responses.
 func TestOpenAIImageProtocolClaimBindsBothEndpointsAndRequiresRender(t *testing.T) {
 	exports := `export const protocols = {openai_image: {
 		decodeRequest: function(ctx) { return {kind: "submit", model: ctx.model, requestBody: ctx.body.value}; },
 		render: function(ctx, task) { return {data: []}; }
 	}};`
 	registry := NewRegistry()
-	plugin := mustCompileRoutingPlugin(t, "image-plugin", 17, `["image-a", "image-b"]`, `protocols: ["openai_image"],`, exports)
+	plugin := mustCompileRoutingPlugin(t, "image-plugin", 17, `["image-a", "image-b"]`, `protocols: [{name: "openai_image", supports: ["sync", "background"]}],`, exports)
 	require.NoError(t, registry.ReplaceOverrides([]*LoadedPlugin{plugin}))
 	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
 		for _, model := range []string{"image-a", "image-b"} {
@@ -122,16 +121,16 @@ func TestOpenAIImageProtocolClaimBindsBothEndpointsAndRequiresRender(t *testing.
 	_, ok := registry.Generation().LookupEndpoint(http.MethodPost, "/v1/videos", "image-a")
 	assert.False(t, ok, "an image claim must not bind the video endpoint")
 
-	scoped := mustCompileRoutingPlugin(t, "image-scoped", 17, `["image-a", "image-b"]`, `protocols: [{name: "openai_image", models: ["image-a"]}],`, exports)
+	scoped := mustCompileRoutingPlugin(t, "image-scoped", 17, `["image-a", "image-b"]`, `protocols: [{name: "openai_image", models: ["image-a"], supports: ["sync"]}],`, exports)
 	require.NoError(t, registry.ReplaceOverrides([]*LoadedPlugin{scoped}))
 	_, ok = registry.Generation().LookupEndpoint(http.MethodPost, "/v1/images/generations", "image-b")
 	assert.False(t, ok, "models narrows the image endpoint bindings")
 
-	_, err := CompilePlugin(routingTestPluginSource("image-no-render", 17, `["image-a"]`, `protocols: ["openai_image"],`,
+	_, err := CompilePlugin(routingTestPluginSource("image-no-render", 17, `["image-a"]`, `protocols: [{name: "openai_image", supports: ["sync"]}],`,
 		`export const protocols = {openai_image: {decodeRequest: function(ctx) { return {kind: "submit", model: ctx.model}; }}};`), Options{})
-	require.ErrorContains(t, err, `missing hook "render"`)
-	_, err = CompilePlugin(routingTestPluginSource("image-modes", 17, `["image-a"]`, `protocols: [{name: "openai_image", supports: ["sync"]}],`, exports), Options{})
-	require.ErrorContains(t, err, "does not define modes")
+	require.ErrorContains(t, err, `does not export protocols.openai_image.render`)
+	_, err = CompilePlugin(routingTestPluginSource("image-modes", 17, `["image-a"]`, `protocols: [{name: "openai_image", supports: ["stream"]}],`, exports), Options{})
+	require.ErrorContains(t, err, `has no mode "stream"`)
 }
 
 func TestFileReferenceRoundTripAddressesRepeatedFieldFiles(t *testing.T) {
@@ -194,6 +193,29 @@ func TestPerProtocolModelsAllowDisjointPluginsOnSharedProtocol(t *testing.T) {
 	boundB, ok := generation.LookupEndpoint("POST", "/v1/responses", "model-b")
 	require.True(t, ok)
 	assert.Same(t, right, boundB.Plugin)
+}
+
+func TestDistinctModelCaseSpellingsRequireExactLookup(t *testing.T) {
+	exports := `export const protocols = {openai_image: {
+		decodeRequest: function(ctx) { return {kind: "submit", model: ctx.model, requestBody: ctx.body.value}; },
+		render: function() { return {data: []}; }
+	}};`
+	lower := mustCompileRoutingPlugin(t, "case-lower", 0, `["z-image-turbo"]`,
+		`protocols: [{name: "openai_image", supports: ["sync"]}],`, exports)
+	upper := mustCompileRoutingPlugin(t, "case-upper", 0, `["Z-Image-Turbo"]`,
+		`protocols: [{name: "openai_image", supports: ["sync", "background"]}],`, exports)
+	registry := NewRegistry()
+	require.NoError(t, registry.ReplaceOverrides([]*LoadedPlugin{upper, lower}))
+
+	generation := registry.Generation()
+	lowerBinding, ok := generation.LookupEndpoint(http.MethodPost, "/v1/images/generations", "z-image-turbo")
+	require.True(t, ok)
+	assert.Same(t, lower, lowerBinding.Plugin)
+	upperBinding, ok := generation.LookupEndpoint(http.MethodPost, "/v1/images/generations", "Z-Image-Turbo")
+	require.True(t, ok)
+	assert.Same(t, upper, upperBinding.Plugin)
+	_, ok = generation.CanonicalModel("Z-IMAGE-TURBO")
+	assert.False(t, ok, "an inexact ambiguous spelling must not select either provider")
 }
 
 func TestPreflightRoutingConflict(t *testing.T) {

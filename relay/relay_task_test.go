@@ -610,6 +610,58 @@ func TestSharedEndpointBillingKeepsOrdinaryAndPluginPricesSeparate(t *testing.T)
 	}
 }
 
+func TestTaskPluginImageInheritsNativeFixedModelPricing(t *testing.T) {
+	const expression = `param("quality") == "xhigh" ? tier("xhigh", fixed(5.400)) : param("quality") == "max" ? tier("xhigh", fixed(5.400)) : tier("std", fixed(2.700))`
+	for _, testCase := range []struct {
+		quality   string
+		wantTier  string
+		wantQuota int
+	}{
+		{quality: "high", wantTier: "std", wantQuota: 1350000},
+		{quality: "xhigh", wantTier: "xhigh", wantQuota: 2700000},
+		{quality: "max", wantTier: "xhigh", wantQuota: 2700000},
+	} {
+		t.Run(testCase.quality, func(t *testing.T) {
+			saveBillingConfig(t)
+			modes, err := common.Marshal(map[string]string{"declared-model": billing_setting.BillingModeTieredExpr})
+			require.NoError(t, err)
+			expressions, err := common.Marshal(map[string]string{"declared-model": expression})
+			require.NoError(t, err)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_mode":            string(modes),
+				"billing_setting.billing_expr":            string(expressions),
+				billing_setting.PluginBillingExprOption:   `{}`,
+				"group_ratio_setting.group_ratio":         `{"default":1}`,
+				"group_ratio_setting.group_ratio_enabled": `true`,
+			}))
+
+			source := strings.ReplaceAll(billingFallbackPlugin, "bill-fallback", "image-task")
+			source = strings.Replace(source, `fetchMode:"per_task"`, `fetchMode:"per_task",protocols:[{name:"openai_image",models:["declared-model"],supports:["sync","background"]}]`, 1) + `
+export function extractUsage(){return {n:1,quality:"` + testCase.quality + `"};}
+export const protocols={openai_image:{decodeRequest:function(ctx){return {kind:"submit",model:ctx.model,action:"image_generation",requestBody:{model:ctx.model}};},render:function(ctx,task){return task;}}};
+`
+			c, info := newTaskSubmitContext(t, "declared-model", "")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"declared-model"}`))
+			c.Set("group", "default")
+			c.Set("task_plugin_key", "image-task")
+			info.UserGroup = "default"
+			info.UsingGroup = "default"
+			info.OriginModelName = "declared-model"
+			info.RelayFormat = kittypes.RelayFormatOpenAIImage
+			info.Request = &kitdto.ImageRequest{Model: "declared-model", Quality: testCase.quality, N: common.GetPointer(uint(1))}
+			pinMappingOrderPlugin(t, c, source)
+
+			_, taskErr := RelayTaskSubmit(c, info)
+			require.NotNil(t, taskErr)
+			assert.NotEqual(t, "model_price_error", taskErr.Code)
+			require.NotNil(t, info.TieredBillingSnapshot)
+			assert.False(t, info.TieredBillingSnapshot.TaskUsageBilling)
+			assert.Equal(t, testCase.wantTier, info.TieredBillingSnapshot.EstimatedTier)
+			assert.Equal(t, testCase.wantQuota, info.PriceData.Quota)
+		})
+	}
+}
+
 // Issue #7478: task APIs answer 201 Created or 202 Accepted on submission.
 // Every 2xx must reach parseSubmitResponse; only other statuses are upstream
 // failures that keep the upstream status and body.

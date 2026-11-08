@@ -96,12 +96,11 @@ var hostProtocols = []HostProtocolDefinition{
 		{Name: "retrieve", Methods: []string{http.MethodGet}, Path: "/v1/videos/:task_id", BodyKinds: []BodyKind{BodyNone}, RequiredProtocolMembers: []string{"render"}},
 		{Name: "content", Methods: []string{http.MethodGet, http.MethodHead}, Path: "/v1/videos/:task_id/content", BodyKinds: []BodyKind{BodyNone}, RequiredDriverHooks: []string{"listArtifacts", "buildContentRequest"}},
 	}},
-	// The OpenAI Images API is synchronous: both operations create a task and
-	// the host answers with the rendered image response once the task is
-	// terminal, so there is no retrieve operation and no request modes.
+	// The OpenAI Images API remains synchronous by default. Plugins may also
+	// expose background mode for upstreams that return durable image tasks.
 	{Name: ProtocolOpenAIImage, Operations: []HostProtocolOperation{
-		{Name: "generate", Methods: []string{http.MethodPost}, Path: "/v1/images/generations", BodyKinds: []BodyKind{BodyJSON}, ModelField: "model", RequiredProtocolMembers: []string{"decodeRequest", "render"}},
-		{Name: "edit", Methods: []string{http.MethodPost}, Path: "/v1/images/edits", BodyKinds: []BodyKind{BodyJSON, BodyMultipart}, ModelField: "model", RequiredProtocolMembers: []string{"decodeRequest", "render"}},
+		{Name: "generate", Methods: []string{http.MethodPost}, Path: "/v1/images/generations", BodyKinds: []BodyKind{BodyJSON}, ModelField: "model", RequiredProtocolMembers: []string{"decodeRequest", "render"}, Modes: []ProtocolMode{{Name: "sync", Hook: "render"}, {Name: "background", Hook: "render"}}},
+		{Name: "edit", Methods: []string{http.MethodPost}, Path: "/v1/images/edits", BodyKinds: []BodyKind{BodyJSON, BodyMultipart}, ModelField: "model", RequiredProtocolMembers: []string{"decodeRequest", "render"}, Modes: []ProtocolMode{{Name: "sync", Hook: "render"}, {Name: "background", Hook: "render"}}},
 	}},
 }
 
@@ -533,8 +532,9 @@ func (g *RoutingGeneration) SharedModel(model string) bool {
 }
 
 // CanonicalModel returns the declared spelling for model. An exact byModel
-// hit wins and returns the input unchanged; otherwise the ASCII-folded
-// index is consulted. Miss and nil-receiver return ("", false).
+// hit wins and returns the input unchanged; otherwise the ASCII-folded index
+// is consulted. A fold shared by distinct exact spellings is ambiguous and
+// returns a miss rather than guessing a provider spelling.
 func (g *RoutingGeneration) CanonicalModel(model string) (string, bool) {
 	if g == nil || model == "" {
 		return "", false
@@ -543,7 +543,7 @@ func (g *RoutingGeneration) CanonicalModel(model string) (string, bool) {
 		return model, true
 	}
 	declared, ok := g.canonicalModelByFold[asciiFold(model)]
-	return declared, ok
+	return declared, ok && declared != ""
 }
 
 // LookupDeclaredRoute resolves a manifest path declaration, or its /{key}
@@ -1134,11 +1134,7 @@ func buildRoutingGenerationFromPlugins(effective map[string]*LoadedPlugin, numbe
 			folded := asciiFold(model)
 			if existing, exists := generation.canonicalModelByFold[folded]; exists {
 				if existing != model {
-					otherKey := plugin.Meta.Key
-					if other, ok := generation.byModel[existing]; ok {
-						otherKey = other.Meta.Key
-					}
-					return nil, fmt.Errorf("plugin %s model %q conflicts with plugin %s model %q", plugin.Meta.Key, model, otherKey, existing)
+					generation.canonicalModelByFold[folded] = ""
 				}
 				continue
 			}
@@ -1197,8 +1193,9 @@ func buildRoutingGenerationFromPlugins(effective map[string]*LoadedPlugin, numbe
 }
 
 // PreflightRoutingConflict reports whether admitting candidate into the
-// current generation would collide on a channel type, a case-folded model
-// name, or a protocol-model binding. A same-key entry is replaced first so
+// current generation would collide on a channel type or protocol-model
+// binding. Distinct exact model spellings may share an ASCII fold, but only
+// exact lookups can select them. A same-key entry is replaced first so
 // re-uploading a plugin (or overriding a factory built-in) does not
 // self-conflict.
 func PreflightRoutingConflict(current *RoutingGeneration, candidate *LoadedPlugin) error {
