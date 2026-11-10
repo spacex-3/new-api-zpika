@@ -135,3 +135,18 @@ func BuildTaskArtifactContentURL(taskID, artifactKey string) (string, error) {
 	baseURL.RawQuery = query.Encode()
 	return baseURL.String(), nil
 }
+
+// BuildDashboardTaskArtifactContentURL keeps a dedicated public artifact
+// address absolute. Otherwise the dashboard receives the configured path and
+// capability as a same-origin URL, so any reverse-proxy origin can serve it.
+func BuildDashboardTaskArtifactContentURL(taskID, artifactKey string) (string, error) {
+	contentURL, err := BuildTaskArtifactContentURL(taskID, artifactKey)
+	if err != nil || strings.TrimSpace(system_setting.TaskPublicAddress) != "" {
+		return contentURL, err
+	}
+	parsed, err := url.Parse(contentURL)
+	if err != nil {
+		return "", err
+	}
+	return parsed.RequestURI(), nil
+}

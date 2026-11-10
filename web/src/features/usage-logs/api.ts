@@ -179,5 +179,8 @@ export async function getTaskArtifacts(taskId: string) {
     `/api/task/${encodeURIComponent(taskId)}/artifacts`,
     taskArtifactRequestConfig
   )
-  return parseTaskArtifactsResponse(response.data)
+  return parseTaskArtifactsResponse(
+    response.data,
+    typeof window === 'undefined' ? undefined : window.location.origin
+  )
 }

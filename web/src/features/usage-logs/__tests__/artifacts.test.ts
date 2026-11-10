@@ -63,6 +63,43 @@ function taskFixture(overrides: Partial<TaskLog> = {}): TaskLog {
 }
 
 describe('task artifact projection', () => {
+  test('uses the current reverse-proxy origin for dashboard artifact URLs', () => {
+    assert.deepEqual(
+      parseTaskArtifactsResponse(
+        {
+          success: true,
+          data: {
+            artifacts: [
+              {
+                key: 'image-main',
+                type: 'image',
+                content_url: `/media-prefix/v1/tasks/task-public/artifacts/image-main/content?access=${artifactAccessToken}`,
+              },
+            ],
+            legacy_content_url: `/media-prefix/v1/tasks/task-public/artifacts/video/content?access=${artifactAccessToken}`,
+          },
+        },
+        'https://proxy.example.com'
+      ),
+      {
+        artifacts: [
+          {
+            key: 'image-main',
+            type: 'image',
+            content_url: artifactContentUrl(
+              'image-main',
+              'https://proxy.example.com/media-prefix'
+            ),
+          },
+        ],
+        legacyContentUrl: artifactContentUrl(
+          'video',
+          'https://proxy.example.com/media-prefix'
+        ),
+      }
+    )
+  })
+
   test('enables projection only after a successful artifact viewer opens', () => {
     const successfulPluginTask = taskFixture()
 

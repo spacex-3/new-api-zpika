@@ -53,7 +53,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function parseContentUrl(value: unknown): string {
+function parseContentUrl(value: unknown, currentOrigin?: string): string {
   if (typeof value !== 'string') {
     throw new TaskArtifactApiError('invalid_content_url')
   }
@@ -63,7 +63,10 @@ function parseContentUrl(value: unknown): string {
     contentUrl.length === 0 ||
     contentUrl !== value ||
     contentUrl.includes('#') ||
-    !/^https?:\/\//i.test(contentUrl)
+    (!/^https?:\/\//i.test(contentUrl) &&
+      (!currentOrigin ||
+        !contentUrl.startsWith('/') ||
+        contentUrl.startsWith('//')))
   ) {
     throw new TaskArtifactApiError('invalid_content_url')
   }
@@ -75,17 +78,26 @@ function parseContentUrl(value: unknown): string {
   }
 
   try {
-    const url = new URL(contentUrl)
-    const authorityStart = contentUrl.indexOf('//') + 2
-    const pathStart = contentUrl.indexOf('/', authorityStart)
-    const authority = contentUrl.slice(
-      authorityStart,
-      pathStart === -1 ? contentUrl.length : pathStart
-    )
+    const relative = contentUrl.startsWith('/')
+    const base = currentOrigin ? new URL(currentOrigin) : undefined
+    if (base && base.protocol !== 'https:' && base.protocol !== 'http:') {
+      throw new TaskArtifactApiError('invalid_current_origin')
+    }
+    const url = relative
+      ? new URL(contentUrl, base?.origin)
+      : new URL(contentUrl)
+    const authorityStart = relative ? -1 : contentUrl.indexOf('//') + 2
+    const pathStart = relative ? -1 : contentUrl.indexOf('/', authorityStart)
+    const authority = relative
+      ? ''
+      : contentUrl.slice(
+          authorityStart,
+          pathStart === -1 ? contentUrl.length : pathStart
+        )
     if (
       (url.protocol !== 'https:' && url.protocol !== 'http:') ||
       url.hostname.length === 0 ||
-      authority.includes('@') ||
+      (!relative && authority.includes('@')) ||
       url.username ||
       url.password ||
       url.hash ||
@@ -101,14 +113,17 @@ function parseContentUrl(value: unknown): string {
     ) {
       throw new TaskArtifactApiError('invalid_content_url')
     }
-    return contentUrl
+    return relative ? url.toString() : contentUrl
   } catch (error) {
     if (error instanceof TaskArtifactApiError) throw error
     throw new TaskArtifactApiError('invalid_content_url')
   }
 }
 
-function parseTaskArtifact(value: unknown): TaskArtifact {
+function parseTaskArtifact(
+  value: unknown,
+  currentOrigin?: string
+): TaskArtifact {
   if (!isRecord(value)) {
     throw new TaskArtifactApiError('invalid_artifact')
   }
@@ -126,7 +141,7 @@ function parseTaskArtifact(value: unknown): TaskArtifact {
   const artifact: TaskArtifact = {
     key,
     type: type as TaskArtifact['type'],
-    content_url: parseContentUrl(value.content_url),
+    content_url: parseContentUrl(value.content_url, currentOrigin),
   }
   if (typeof value.mime_type === 'string' && value.mime_type.trim()) {
     const mimeType = value.mime_type.trim()
@@ -161,7 +176,8 @@ export function parseLegacyAudioClips(data: unknown): AudioClip[] {
 }
 
 export function parseTaskArtifactsResponse(
-  response: TaskArtifactsResponse
+  response: TaskArtifactsResponse,
+  currentOrigin?: string
 ): TaskArtifactProjection {
   if (!response.success) {
     throw new TaskArtifactApiError(
@@ -179,7 +195,9 @@ export function parseTaskArtifactsResponse(
     throw new TaskArtifactApiError('invalid_artifact_response')
   }
 
-  const artifacts = artifactValues.map(parseTaskArtifact)
+  const artifacts = artifactValues.map((artifact) =>
+    parseTaskArtifact(artifact, currentOrigin)
+  )
   const keys = new Set<string>()
   for (const artifact of artifacts) {
     if (keys.has(artifact.key)) {
@@ -190,7 +208,8 @@ export function parseTaskArtifactsResponse(
   const projection: TaskArtifactProjection = { artifacts }
   if (response.data?.legacy_content_url != null) {
     projection.legacyContentUrl = parseContentUrl(
-      response.data.legacy_content_url
+      response.data.legacy_content_url,
+      currentOrigin
     )
   }
   if (response.data?.legacy_audio_clips != null) {

@@ -76,6 +76,38 @@ func TestBuildTaskArtifactContentURLFallsBackOnlyToServerAddress(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestBuildDashboardTaskArtifactContentURLUsesCurrentOriginUnlessPublicAddressIsConfigured(t *testing.T) {
+	previousSecret := common.CryptoSecret
+	previousPublicAddress := system_setting.TaskPublicAddress
+	previousServerAddress := system_setting.ServerAddress
+	common.CryptoSecret = "task-artifact-dashboard-test-secret"
+	system_setting.TaskPublicAddress = ""
+	system_setting.ServerAddress = "http://localhost:3000/proxy-prefix"
+	t.Cleanup(func() {
+		common.CryptoSecret = previousSecret
+		system_setting.TaskPublicAddress = previousPublicAddress
+		system_setting.ServerAddress = previousServerAddress
+	})
+
+	contentURL, err := BuildDashboardTaskArtifactContentURL("task-public", "image-main")
+	require.NoError(t, err)
+	parsed, err := url.Parse(contentURL)
+	require.NoError(t, err)
+	assert.Empty(t, parsed.Scheme)
+	assert.Empty(t, parsed.Host)
+	assert.Equal(t, "/proxy-prefix/v1/tasks/task-public/artifacts/image-main/content", parsed.Path)
+	assert.True(t, VerifyTaskArtifactAccess(
+		parsed.Query().Get(TaskArtifactAccessQueryParameter),
+		"task-public",
+		"image-main",
+	))
+
+	system_setting.TaskPublicAddress = "https://media.example/public"
+	contentURL, err = BuildDashboardTaskArtifactContentURL("task-public", "image-main")
+	require.NoError(t, err)
+	assert.Contains(t, contentURL, "https://media.example/public/v1/tasks/")
+}
+
 func TestValidateTaskArtifactBaseURLOnlyAcceptsSafeAbsoluteHTTPURLs(t *testing.T) {
 	for _, valid := range []string{
 		"http://localhost:3000",
