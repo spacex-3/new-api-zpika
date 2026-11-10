@@ -4,7 +4,7 @@ compatibility_date = "2026-11-10"
 
 [[r2_buckets]]
 binding = "ARTIFACT_BUCKET"
-bucket_name = "zpika-new-api-artifacts"
+bucket_name = "zpika"
 
 [vars]
 INGEST_HMAC_KEY_ID = "v1"

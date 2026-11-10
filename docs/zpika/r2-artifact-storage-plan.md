@@ -63,7 +63,7 @@ and credentialed artifacts. Passing only the provider URL is insufficient.
 
 ## Storage Boundary
 
-Use a dedicated R2 Standard bucket for New API artifacts. Do not share runtime
+Use the private R2 Standard bucket `zpika` for New API artifacts. Do not share runtime
 credentials with the Canvas application.
 
 Recommended object key shape:
