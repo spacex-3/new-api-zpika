@@ -64,15 +64,15 @@ export const meta = {
   upstreams: ["new_api"],
   usageSchema: {
     n: { type: "number", unit: "count", description: { en: "Generation unit price", zh: "生成单价" } },
-    img_n: { type: "number", unit: "count", description: { en: "Output image count", zh: "输出图片数量" } },
-    tin: { type: "number", unit: "token", description: { en: "Input text tokens", zh: "输入文本 Token" } },
-    iin: { type: "number", unit: "token", description: { en: "Input image tokens", zh: "输入图片 Token" } },
-    iout: { type: "number", unit: "token", description: { en: "Output image tokens", zh: "输出图片 Token" } },
-    as: { type: "number", unit: "second", description: { en: "Audio duration", zh: "音频时长" } },
-    vs: { type: "number", unit: "second", description: { en: "Video duration", zh: "视频时长" } },
-    tokens: { type: "number", unit: "token", description: { en: "Upstream billing tokens", zh: "上游计费 Token" } },
-    ref: { type: "number", unit: "count", description: { en: "Reference media count", zh: "参考媒体数量" } },
-    vref: { type: "number", unit: "count", description: { en: "Reference video count", zh: "参考视频数量" } },
+    img_n: { type: "number", unit: "count", description: { en: "Output image unit price", zh: "输出图片单价" } },
+    tin: { type: "number", unit: "token", description: { en: "Input text token unit price", zh: "输入文本 Token 单价" } },
+    iin: { type: "number", unit: "token", description: { en: "Input image token unit price", zh: "输入图片 Token 单价" } },
+    iout: { type: "number", unit: "token", description: { en: "Output image token unit price", zh: "输出图片 Token 单价" } },
+    as: { type: "number", unit: "second", description: { en: "Audio second unit price", zh: "音频每秒单价" } },
+    vs: { type: "number", unit: "second", description: { en: "Video second unit price", zh: "视频每秒单价" } },
+    tokens: { type: "number", unit: "token", description: { en: "Upstream token unit price", zh: "上游 Token 单价" } },
+    ref: { type: "number", unit: "count", description: { en: "Reference media unit price", zh: "参考媒体单价" } },
+    vref: { type: "number", unit: "count", description: { en: "Reference video unit price", zh: "参考视频单价" } },
   },
   usageExamples: [
     { label: "default media task", facts: { n: 1, img_n: 1, tin: 0, iin: 0, iout: 0, as: 0, vs: 5, tokens: 0, ref: 0, vref: 0 } },
@@ -128,16 +128,26 @@ function statusName(status) {
   return names[String(status || "").toUpperCase()] || "queued";
 }
 
-function publicTask(task) {
+function publicTask(ctx, task) {
   const data = object(task.data);
   const output = Object.assign({}, data, {
     id: task.task_id,
     status: statusName(task.status),
     progress: data.progress === undefined ? task.progress : data.progress,
   });
+  if (Array.isArray(data.data)) output.data = publicImageData(ctx, data.data);
+  if (ctx && ctx.artifacts && ctx.artifacts.video && ctx.artifacts.video.url) output.video_url = ctx.artifacts.video.url;
   if (data.task_id !== undefined) output.task_id = task.task_id;
   if (task.status === "FAILURE") output.error = object(data.error).message ? data.error : { message: task.fail_reason || "task failed" };
   return output;
+}
+
+function publicImageData(ctx, data) {
+  if (!ctx || !ctx.artifacts) return data;
+  return data.map(function (item, index) {
+    const artifact = ctx.artifacts["image-" + (index + 1)];
+    return artifact && artifact.url ? Object.assign({}, object(item), { url: artifact.url }) : item;
+  });
 }
 
 function videoURL(data) {
@@ -163,8 +173,8 @@ function decodeJSON(ctx, action) {
 export const native = {
   createMusic: function (ctx) { return decodeJSON(ctx, "music_generation"); },
   create3D: function (ctx) { return decodeJSON(ctx, "threed_generation"); },
-  imageTask: function (ctx, task) { return publicTask(task); },
-  mediaTask: function (ctx, task) { return publicTask(task); },
+  imageTask: function (ctx, task) { return publicTask(ctx, task); },
+  mediaTask: function (ctx, task) { return publicTask(ctx, task); },
   error: function (ctx, error) { return { error: { code: error.code, message: error.message } }; },
 };
 
@@ -324,10 +334,10 @@ export const protocols = {
       };
     },
     render: function (ctx, task) {
-      if (ctx.body.value["async"] === true) return publicTask(task);
-      if (task.status !== "SUCCESS") return publicTask(task);
+      if (ctx.body.value["async"] === true) return publicTask(ctx, task);
+      if (task.status !== "SUCCESS") return publicTask(ctx, task);
       const data = object(task.data);
-      return { created: data.created || task.created_at, data: Array.isArray(data.data) ? data.data : [], usage: data.usage };
+      return { created: data.created || task.created_at, data: Array.isArray(data.data) ? publicImageData(ctx, data.data) : [], usage: data.usage };
     },
   },
   openai_video: {
@@ -341,6 +351,6 @@ export const protocols = {
       const hasReference = references(body, "reference_image_urls") > 0 || references(body, "reference_videos") > 0 || trimmed(body.first_image_url);
       return { kind: "submit", model: model, action: hasReference ? "image_to_video" : "text_to_video", requestBody: Object.assign({}, body, { model: model }) };
     },
-    render: function (ctx, task) { return publicTask(task); },
+    render: function (ctx, task) { return publicTask(ctx, task); },
   },
 };

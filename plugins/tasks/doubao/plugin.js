@@ -303,7 +303,7 @@ export const meta = {
     en: "Volcengine Doubao Seedance video generation and Seedream image generation",
     zh: "火山引擎豆包 Seedance 视频生成与 Seedream 图片生成",
   },
-  version: "1.4.0",
+  version: "1.4.1",
   author: { name: "QuantumNous" },
   channelTypes: [54, 45], // VolcEngine-type channels serve Ark video models with the same wire format
   models: Object.keys(VIDEO_MODELS).concat(Object.keys(IMAGE_MODELS)),
@@ -334,6 +334,34 @@ export const meta = {
 
 function trimmed(value) {
   return String(value || "").trim();
+}
+
+// A gateway may return a protected media URL on its own origin, while Ark may
+// return a self-authenticating external CDN URL. Only the former receives the
+// channel credential.
+function isChannelURL(url, baseUrl) {
+  const base = trimmed(baseUrl).replace(/\/+$/, "");
+  const candidate = trimmed(url);
+  return Boolean(base) && (candidate === base || candidate.startsWith(base + "/") || candidate.startsWith(base + "?") || candidate.startsWith(base + "#"));
+}
+
+// Protected gateway URLs are short-lived. Refresh the successful task before
+// every content resolution so background R2 persistence does not ingest an
+// expired snapshot.
+function refreshChannelArtifactURL(ctx, url) {
+  if (!isChannelURL(url, ctx.baseUrl) || !trimmed(ctx.upstreamTaskId)) return url;
+  const response = utils.fetch({
+    url: apiRoot(ctx) + "/api/v3/contents/generations/tasks/" + encodeURIComponent(ctx.upstreamTaskId),
+    headers: { Accept: "application/json", Authorization: "Bearer " + ctx.apiKey },
+  });
+  if (response.status !== 200 || !response.body || typeof response.body !== "object" || Array.isArray(response.body)) {
+    throw new Error("artifact task refresh failed: HTTP " + response.status);
+  }
+  const content = response.body.content || {};
+  const urls = { video: content.video_url, last_frame: content.last_frame_url };
+  const refreshed = trimmed(urls[ctx.artifactKey]);
+  if (!refreshed) throw new Error("artifact_not_found");
+  return refreshed;
 }
 
 // Another New API gateway serves the Ark wire format under /doubao, the form
@@ -1020,6 +1048,10 @@ export function buildContentRequest(ctx) {
     url = trimmed(urls[ctx.artifactKey]);
   }
   if (!url) throw new Error("artifact_not_found");
+  url = refreshChannelArtifactURL(ctx, url);
+  if (isChannelURL(url, ctx.baseUrl)) {
+    return { url: url, method: ctx.clientRequest.method, headers: { Authorization: "Bearer " + ctx.apiKey } };
+  }
   return { url: url, method: ctx.clientRequest.method, credentialless: true };
 }
 

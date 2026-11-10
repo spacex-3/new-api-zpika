@@ -2775,6 +2775,78 @@ func TestTaskAdaptorChainsDoubaoThroughNewAPIUpstream(t *testing.T) {
 	}, seen)
 }
 
+func TestDoubaoArtifactRequestsAuthenticateOnlyProtectedGatewayURLs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/doubao/api/v3/contents/generations/tasks/upstream-task", r.URL.Path)
+		assert.Equal(t, "Bearer sk-gateway", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"succeeded","content":{"video_url":%q}}`, "http://"+r.Host+"/protected/video.mp4?vc=fresh")
+	}))
+	defer gateway.Close()
+
+	source, err := plugins.Source("doubao")
+	require.NoError(t, err)
+	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "doubao"})
+	require.NoError(t, err)
+	adaptor := New(plugin)
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelType: constant.ChannelTypeNewAPI, ChannelBaseUrl: gateway.URL, ApiKey: "sk-gateway",
+	}})
+
+	protectedTask := &model.Task{
+		TaskID: "task-protected", Status: model.TaskStatusSuccess, Action: "text_to_video",
+		PrivateData: model.TaskPrivateData{UpstreamTaskID: "upstream-task"},
+		Data:        []byte(fmt.Sprintf(`{"status":"succeeded","content":{"video_url":%q}}`, gateway.URL+"/protected/expired.mp4")),
+	}
+	protected, err := adaptor.BuildArtifactSourceRequest(t.Context(), protectedTask, "video")
+	require.NoError(t, err)
+	require.NotNil(t, protected)
+	assert.Equal(t, gateway.URL+"/protected/video.mp4?vc=fresh", protected.URL)
+	assert.Equal(t, "Bearer sk-gateway", protected.Headers["Authorization"])
+	assert.False(t, protected.Credentialless)
+
+	externalTask := &model.Task{
+		TaskID: "task-external", Status: model.TaskStatusSuccess, Action: "text_to_video",
+		Data: []byte(`{"status":"succeeded","content":{"video_url":"https://cdn.example/video.mp4?signature=external"}}`),
+	}
+	external, err := adaptor.BuildArtifactSourceRequest(t.Context(), externalTask, "video")
+	require.NoError(t, err)
+	require.NotNil(t, external)
+	assert.Equal(t, "https://cdn.example/video.mp4?signature=external", external.URL)
+	assert.Empty(t, external.Headers)
+	assert.True(t, external.Credentialless)
+}
+
+func TestCangyuanPresentersReplaceProviderImageURLs(t *testing.T) {
+	source, err := plugins.Source("cangyuan")
+	require.NoError(t, err)
+	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "cangyuan"})
+	require.NoError(t, err)
+	ctx := map[string]any{
+		"body": map[string]any{"kind": "json", "value": map[string]any{"async": false}},
+		"artifacts": map[string]any{
+			"image-1": map[string]any{"url": "https://gateway.example/v1/tasks/task-public/artifacts/image-1/content"},
+		},
+	}
+	task := map[string]any{
+		"task_id": "task-public", "status": "SUCCESS", "progress": "100%", "created_at": 100,
+		"data": map[string]any{"created": 101, "data": []any{map[string]any{"url": "https://provider.example/image.png", "revised_prompt": "cat"}}},
+	}
+
+	var native map[string]any
+	require.NoError(t, plugin.Engine.CallPathInto(t.Context(), &native, "native", []string{"imageTask"}, ctx, task))
+	nativeData := native["data"].([]any)
+	assert.Equal(t, "https://gateway.example/v1/tasks/task-public/artifacts/image-1/content", nativeData[0].(map[string]any)["url"])
+
+	var synchronous map[string]any
+	require.NoError(t, plugin.Engine.CallPathInto(t.Context(), &synchronous, "protocols", []string{"openai_image", "render"}, ctx, task))
+	synchronousData := synchronous["data"].([]any)
+	assert.Equal(t, "https://gateway.example/v1/tasks/task-public/artifacts/image-1/content", synchronousData[0].(map[string]any)["url"])
+	assert.Equal(t, "cat", synchronousData[0].(map[string]any)["revised_prompt"])
+}
+
 func TestTaskAdaptorChainsSunoBatchFetchThroughNewAPIUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()

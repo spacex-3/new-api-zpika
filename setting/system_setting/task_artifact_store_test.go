@@ -9,19 +9,25 @@ import (
 
 func TestValidateTaskArtifactStoreConfig(t *testing.T) {
 	valid := TaskArtifactStoreConfig{
-		Mode:                TaskArtifactStoreModeS3,
-		S3Endpoint:          "https://objects.example.com/storage",
-		S3Bucket:            "task-artifacts",
-		S3Region:            "us-east-1",
-		S3AccessKey:         "access-key",
-		S3SecretKey:         "secret-key",
-		S3Prefix:            "tasks/v1/",
-		S3PresignTTLSeconds: 900,
+		Mode:                 TaskArtifactStoreModeS3,
+		S3Endpoint:           "https://objects.example.com/storage",
+		S3Bucket:             "task-artifacts",
+		S3Region:             "us-east-1",
+		S3AccessKey:          "access-key",
+		S3SecretKey:          "secret-key",
+		S3Prefix:             "tasks/v1/",
+		S3PresignTTLSeconds:  900,
+		RetentionSeconds:     DefaultTaskArtifactStoreRetentionSeconds,
+		WorkerTimeoutSeconds: DefaultTaskArtifactWorkerTimeoutSeconds,
+		WorkerConcurrency:    DefaultTaskArtifactWorkerConcurrency,
 	}
 	require.NoError(t, ValidateTaskArtifactStoreConfig(valid))
 	require.NoError(t, ValidateTaskArtifactStoreConfig(TaskArtifactStoreConfig{
-		Mode:                TaskArtifactStoreModeUpstream,
-		S3PresignTTLSeconds: DefaultTaskArtifactStorePresignTTLSeconds,
+		Mode:                 TaskArtifactStoreModeUpstream,
+		S3PresignTTLSeconds:  DefaultTaskArtifactStorePresignTTLSeconds,
+		RetentionSeconds:     DefaultTaskArtifactStoreRetentionSeconds,
+		WorkerTimeoutSeconds: DefaultTaskArtifactWorkerTimeoutSeconds,
+		WorkerConcurrency:    DefaultTaskArtifactWorkerConcurrency,
 	}))
 
 	tests := []struct {
@@ -44,6 +50,43 @@ func TestValidateTaskArtifactStoreConfig(t *testing.T) {
 		{name: "TTL too long", mutate: func(config *TaskArtifactStoreConfig) {
 			config.S3PresignTTLSeconds = MaxTaskArtifactStorePresignTTLSeconds + 1
 		}, match: "presign TTL"},
+		{name: "retention zero", mutate: func(config *TaskArtifactStoreConfig) { config.RetentionSeconds = 0 }, match: "artifact retention"},
+		{name: "worker timeout", mutate: func(config *TaskArtifactStoreConfig) { config.WorkerTimeoutSeconds = 0 }, match: "worker timeout"},
+		{name: "worker concurrency", mutate: func(config *TaskArtifactStoreConfig) { config.WorkerConcurrency = 0 }, match: "worker concurrency"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			config := valid
+			testCase.mutate(&config)
+			assert.ErrorContains(t, ValidateTaskArtifactStoreConfig(config), testCase.match)
+		})
+	}
+}
+
+func TestValidateTaskArtifactWorkerR2Config(t *testing.T) {
+	valid := TaskArtifactStoreConfig{
+		Mode:                 TaskArtifactStoreModeWorkerR2,
+		S3PresignTTLSeconds:  600,
+		WorkerURL:            "https://artifact-ingest.example.workers.dev",
+		WorkerHMACKeyID:      "v1",
+		WorkerHMACSecret:     "0123456789abcdef0123456789abcdef",
+		MediaBaseURL:         "https://media.example.com/prefix",
+		MediaHMACSecret:      "abcdef0123456789abcdef0123456789",
+		RetentionSeconds:     86400,
+		WorkerTimeoutSeconds: 900,
+		WorkerConcurrency:    2,
+	}
+	require.NoError(t, ValidateTaskArtifactStoreConfig(valid))
+
+	tests := []struct {
+		name   string
+		mutate func(*TaskArtifactStoreConfig)
+		match  string
+	}{
+		{name: "worker HTTP", mutate: func(config *TaskArtifactStoreConfig) { config.WorkerURL = "http://worker.example.com" }, match: "absolute HTTPS"},
+		{name: "media query", mutate: func(config *TaskArtifactStoreConfig) { config.MediaBaseURL = "https://media.example.com?a=b" }, match: "absolute HTTPS"},
+		{name: "short ingest secret", mutate: func(config *TaskArtifactStoreConfig) { config.WorkerHMACSecret = "short" }, match: "at least 32"},
+		{name: "short media secret", mutate: func(config *TaskArtifactStoreConfig) { config.MediaHMACSecret = "short" }, match: "at least 32"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -73,4 +116,13 @@ func TestLoadTaskArtifactStoreConfigFallsBackToUpstream(t *testing.T) {
 	assert.Equal(t, TaskArtifactStoreModeUpstream, config.Mode)
 	assert.Equal(t, "https://objects.example.com", config.S3Endpoint)
 	assert.Equal(t, 600, config.S3PresignTTLSeconds)
+
+	t.Setenv(TaskArtifactStoreModeEnv, TaskArtifactStoreModeWorkerR2)
+	t.Setenv(TaskArtifactWorkerURLEnv, "https://artifact-ingest.example.workers.dev")
+	t.Setenv(TaskArtifactWorkerHMACKeyIDEnv, "v1")
+	t.Setenv(TaskArtifactWorkerHMACSecretEnv, "0123456789abcdef0123456789abcdef")
+	t.Setenv(TaskArtifactMediaBaseURLEnv, "https://media.example.com")
+	t.Setenv(TaskArtifactMediaHMACSecretEnv, "abcdef0123456789abcdef0123456789")
+	config = LoadTaskArtifactStoreConfig()
+	assert.Equal(t, TaskArtifactStoreModeWorkerR2, config.Mode)
 }

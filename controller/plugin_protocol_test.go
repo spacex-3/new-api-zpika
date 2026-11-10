@@ -1751,6 +1751,41 @@ func TestServeTaskPluginImageProtocolRendersImmediateResultAndInlinesBase64(t *t
 	}
 }
 
+func TestServeTaskPluginImageProtocolInjectsArtifactsForRetainedResult(t *testing.T) {
+	source := strings.Replace(imageProtocolTestPlugin,
+		`export function buildQueryRequest(){return {url:"https://provider.example"};}`,
+		`export function listArtifacts(task){return (task.data && task.data.images || []).map(function(_, index){return {key:"image-"+(index+1),type:"image"};});}
+export function buildContentRequest(){throw new Error("artifact_not_found");}
+export function buildQueryRequest(){return {url:"https://provider.example"};}`,
+		1,
+	)
+	source = strings.Replace(source,
+		`const data = (task.data && task.data.images || []).map(function(url) { return {url: url}; });`,
+		`const data = (task.data && task.data.images || []).map(function(url, index) { const artifact = ctx.artifacts && ctx.artifacts["image-"+(index+1)]; return {url: artifact ? artifact.url : url}; });`,
+		1,
+	)
+	engine, err := pluginruntime.Compile(source, pluginruntime.Options{Key: "image-bridge", Version: "1.0.0", Concurrency: 1})
+	require.NoError(t, err)
+	pinned := imageProtocolTestEndpoint(t)
+	pinned.Plugin.Engine = engine
+
+	c, recorder := newImageProtocolTestContext("")
+	deps := pluginProtocolTestDeps()
+	deps.artifactContentURL = func(taskID, artifactKey string) (string, error) {
+		return "https://gateway.example/v1/tasks/" + taskID + "/artifacts/" + artifactKey + "/content", nil
+	}
+	deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		return imageProtocolTestOutcome(info, model.TaskStatusSuccess, "https://provider.example/image.png"), nil
+	}
+
+	serveTaskPluginImageProtocol(c, pinned, deps)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	data := response["data"].([]any)
+	assert.Equal(t, "https://gateway.example/v1/tasks/task_image/artifacts/image-1/content", data[0].(map[string]any)["url"])
+}
+
 // An asynchronous vendor task is polled inside the request until it is
 // terminal; a failure and the protocol timeout become OpenAI error envelopes
 // while the durable task stays with the background poller.

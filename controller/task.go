@@ -301,7 +301,7 @@ func writeTaskArtifactProjectionError(c *gin.Context, err error) {
 
 func writeTaskArtifactError(c *gin.Context, status int, code, message string) {
 	c.Header("Cache-Control", "private, no-store")
-	if middleware.IsTaskArtifactAccess(c) {
+	if middleware.IsTaskArtifactAccess(c) && code != "artifact_expired" {
 		status = http.StatusNotFound
 		code = "artifact_not_found"
 		message = "Task or artifact not found"
@@ -358,9 +358,11 @@ func TaskArtifactContent(c *gin.Context) {
 		writeTaskArtifactProjectionError(c, err)
 		return
 	}
+	var selectedArtifact relaychannel.TaskArtifact
 	found := false
 	for _, artifact := range artifacts {
 		if artifact.Key == artifactKey {
+			selectedArtifact = artifact
 			found = true
 			break
 		}
@@ -370,9 +372,22 @@ func TaskArtifactContent(c *gin.Context) {
 		return
 	}
 	artifactStore := service.GetTaskArtifactStore()
-	if ref, resolveErr := artifactStore.Resolve(task, artifactKey); resolveErr == nil && ref != nil {
-		_ = artifactStore.Serve(c, task, ref)
-		return
+	if artifactStore.Enabled() {
+		ref, resolveErr := artifactStore.Resolve(c.Request.Context(), task, artifactKey)
+		if errors.Is(resolveErr, service.ErrTaskArtifactExpired) {
+			writeTaskArtifactError(c, http.StatusGone, "artifact_expired", "Artifact content has expired")
+			return
+		}
+		if resolveErr == nil && ref != nil {
+			serveErr := artifactStore.Serve(c, task, ref)
+			if serveErr == nil {
+				return
+			}
+			if errors.Is(serveErr, service.ErrTaskArtifactExpired) {
+				writeTaskArtifactError(c, http.StatusGone, "artifact_expired", "Artifact content has expired")
+				return
+			}
+		}
 	}
 
 	adaptor, err := initTaskArtifactAdaptor(task)
@@ -397,8 +412,26 @@ func TaskArtifactContent(c *gin.Context) {
 		writeTaskArtifactError(c, http.StatusInternalServerError, "artifact_plugin_error", "Artifact content plugin failed")
 		return
 	}
+	if artifactStore.Enabled() {
+		artifactStore.QueuePersist(task, selectedArtifact, taskArtifactSource(descriptor))
+	}
 	if err := proxyTaskMedia(c, task, descriptor); err != nil {
 		writeTaskMediaProxyError(c, err)
+	}
+}
+
+func taskArtifactSource(descriptor *relaychannel.TaskContentRequest) service.TaskArtifactSource {
+	if descriptor == nil {
+		return service.TaskArtifactSource{}
+	}
+	return service.TaskArtifactSource{
+		URL:            descriptor.URL,
+		Method:         descriptor.Method,
+		Headers:        descriptor.Headers,
+		Body:           descriptor.Body,
+		Credentialless: descriptor.Credentialless,
+		ContentPath:    descriptor.ContentPath,
+		MimeType:       descriptor.MimeType,
 	}
 }
 

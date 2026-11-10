@@ -86,12 +86,34 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	var descriptor *relaychannel.TaskContentRequest
+	artifactStore := service.GetTaskArtifactStore()
 	if taskHasPluginExecution(task) {
 		artifacts, projectionErr := projectTaskArtifacts(task)
 		if projectionErr == nil {
 			for _, artifact := range artifacts {
 				if artifact.Type != "video" {
 					continue
+				}
+				if artifactStore.Enabled() {
+					ref, resolveErr := artifactStore.Resolve(c.Request.Context(), task, artifact.Key)
+					if errors.Is(resolveErr, service.ErrTaskArtifactExpired) {
+						writeTaskMediaProxyError(c, &taskMediaProxyError{
+							status: http.StatusGone, code: "artifact_expired", message: "Artifact content has expired",
+						})
+						return
+					}
+					if resolveErr == nil && ref != nil {
+						serveErr := artifactStore.Serve(c, task, ref)
+						if serveErr == nil {
+							return
+						}
+						if errors.Is(serveErr, service.ErrTaskArtifactExpired) {
+							writeTaskMediaProxyError(c, &taskMediaProxyError{
+								status: http.StatusGone, code: "artifact_expired", message: "Artifact content has expired",
+							})
+							return
+						}
+					}
 				}
 				adaptor, adaptorErr := initTaskArtifactAdaptor(task)
 				if adaptorErr == nil {
@@ -105,6 +127,8 @@ func VideoProxy(c *gin.Context) {
 				if adaptorErr != nil {
 					logger.LogWarn(c.Request.Context(), common.LogText("Failed to resolve plugin video content for task %s: %v", taskID, adaptorErr))
 					descriptor = nil
+				} else if descriptor != nil && artifactStore.Enabled() {
+					artifactStore.QueuePersist(task, artifact, taskArtifactSource(descriptor))
 				}
 				break
 			}

@@ -1360,6 +1360,26 @@ func (a *TaskAdaptor) BuildContentRequest(ctx context.Context, task *model.Task,
 	}, nil
 }
 
+// BuildArtifactSourceRequest adapts the plugin content hook to the host's
+// storage-neutral Worker ingest contract. It deliberately resolves a GET
+// request without client range or validator headers so R2 receives the whole
+// artifact.
+func (a *TaskAdaptor) BuildArtifactSourceRequest(ctx context.Context, task *model.Task, artifactKey string) (*service.TaskArtifactSource, error) {
+	descriptor, err := a.BuildContentRequest(ctx, task, artifactKey, channel.TaskArtifactClientRequest{Method: http.MethodGet})
+	if err != nil || descriptor == nil {
+		return nil, err
+	}
+	return &service.TaskArtifactSource{
+		URL:            descriptor.URL,
+		Method:         descriptor.Method,
+		Headers:        descriptor.Headers,
+		Body:           descriptor.Body,
+		Credentialless: descriptor.Credentialless,
+		ContentPath:    descriptor.ContentPath,
+		MimeType:       descriptor.MimeType,
+	}, nil
+}
+
 // headerOverrideInfo carries the channel's Request Header Override for a
 // request built outside the client request, with {api_key} set to key.
 func (a *TaskAdaptor) headerOverrideInfo(key string) *relaycommon.RelayInfo {

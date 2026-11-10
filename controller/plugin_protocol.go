@@ -1175,7 +1175,7 @@ func taskPluginProtocolRendererContext(
 	artifactContentURL func(taskID, artifactKey string) (string, error),
 ) (map[string]any, error) {
 	rendererContext := request.JSValue()
-	if task == nil || task.Status != model.TaskStatusSuccess {
+	if task == nil || task.Status != model.TaskStatusSuccess || !task.ResultRetrievable() {
 		return rendererContext, nil
 	}
 	if pinned.Plugin == nil {
