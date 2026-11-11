@@ -66,6 +66,7 @@ import { cn } from '@/lib/utils'
 
 import { getTaskArtifacts } from '../api'
 import {
+  buildTaskArtifactDownloadUrl,
   resolveTaskPreviewMode,
   shouldLoadTaskArtifacts,
 } from '../lib/task-artifacts'
@@ -277,7 +278,7 @@ function TaskArtifactCard(props: { artifact: TaskArtifact }) {
           nativeButton={false}
           render={
             <a
-              href={props.artifact.content_url}
+              href={buildTaskArtifactDownloadUrl(props.artifact.content_url)}
               download={props.artifact.key}
               target='_blank'
               rel='noopener noreferrer'

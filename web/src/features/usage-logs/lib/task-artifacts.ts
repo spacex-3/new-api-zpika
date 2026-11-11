@@ -49,6 +49,10 @@ export class TaskArtifactApiError extends Error {
   }
 }
 
+export function buildTaskArtifactDownloadUrl(contentUrl: string): string {
+  return `${contentUrl}&download=1`
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }

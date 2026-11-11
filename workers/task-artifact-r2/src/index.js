@@ -348,7 +348,10 @@ function applyObjectHeaders(object, headers) {
   headers.set("ETag", object.httpEtag || object.etag);
   headers.set("Accept-Ranges", "bytes");
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
+  const contentType = (headers.get("Content-Type") || "").toLowerCase();
+  if (!contentType.startsWith("video/") && !contentType.startsWith("audio/")) {
+    headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
+  }
 }
 
 async function handleMedia(request, env) {
@@ -369,10 +372,18 @@ async function handleMedia(request, env) {
     headers.set("Content-Length", String(head.size));
     return new Response(null, { status: 200, headers });
   }
-  const object = await env.ARTIFACT_BUCKET.get(verified.key, { range: request.headers });
+  const range = request.headers.get("Range");
+  const object = range
+    ? await env.ARTIFACT_BUCKET.get(verified.key, { range: request.headers })
+    : await env.ARTIFACT_BUCKET.get(verified.key);
   if (!object) return json({ error: "not_found" }, 404);
   applyObjectHeaders(object, headers);
-  if (object.range) {
+  if (new URL(request.url).searchParams.get("download") === "1") {
+    const contentType = (headers.get("Content-Type") || "").toLowerCase();
+    const extension = contentType === "video/mp4" ? "mp4" : contentType === "audio/mpeg" ? "mp3" : "bin";
+    headers.set("Content-Disposition", `attachment; filename="artifact.${extension}"`);
+  }
+  if (range && object.range) {
     headers.set("Content-Range", `bytes ${object.range.offset}-${object.range.offset + object.range.length - 1}/${object.size}`);
     headers.set("Content-Length", String(object.range.length));
     return new Response(object.body, { status: 206, headers });

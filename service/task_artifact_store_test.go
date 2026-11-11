@@ -153,6 +153,14 @@ func TestWorkerArtifactServeRedirectsToSignedPrefixedMediaURL(t *testing.T) {
 	mac := hmac.New(sha256.New, []byte(config.MediaHMACSecret))
 	_, _ = mac.Write(taskArtifactMediaSignatureMessage(ref.ObjectKey, expires))
 	assert.Equal(t, base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), location.Query().Get("sig"))
+
+	downloadRecorder := httptest.NewRecorder()
+	downloadContext, _ := gin.CreateTestContext(downloadRecorder)
+	downloadContext.Request = httptest.NewRequest(http.MethodGet, "/artifact?download=1", nil)
+	require.NoError(t, store.Serve(downloadContext, &model.Task{}, ref))
+	downloadLocation, err := url.Parse(downloadRecorder.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "1", downloadLocation.Query().Get("download"))
 }
 
 func TestWorkerArtifactPersistCarriesCredentialOnlyInSignedJob(t *testing.T) {

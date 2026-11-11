@@ -21,6 +21,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'vitest'
 
 import {
+  buildTaskArtifactDownloadUrl,
   getSafePluginAuthorUrl,
   parseLegacyAudioClips,
   parseTaskArtifactsResponse,
@@ -63,6 +64,15 @@ function taskFixture(overrides: Partial<TaskLog> = {}): TaskLog {
 }
 
 describe('task artifact projection', () => {
+  test('adds an explicit attachment request only to the download URL', () => {
+    const contentUrl = artifactContentUrl('video-main')
+
+    assert.equal(
+      buildTaskArtifactDownloadUrl(contentUrl),
+      `${contentUrl}&download=1`
+    )
+  })
+
   test('uses the current reverse-proxy origin for dashboard artifact URLs', () => {
     assert.deepEqual(
       parseTaskArtifactsResponse(

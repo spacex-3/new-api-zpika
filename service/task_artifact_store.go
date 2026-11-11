@@ -314,6 +314,9 @@ func (s *workerR2ArtifactStore) Serve(c *gin.Context, _ *model.Task, ref *Stored
 	query.Set("key", base64.RawURLEncoding.EncodeToString([]byte(ref.ObjectKey)))
 	query.Set("expires", strconv.FormatInt(expires, 10))
 	query.Set("sig", signature)
+	if c.Query("download") == "1" {
+		query.Set("download", "1")
+	}
 	mediaURL.RawQuery = query.Encode()
 	c.Header("Cache-Control", "private, no-store")
 	c.Redirect(http.StatusTemporaryRedirect, mediaURL.String())

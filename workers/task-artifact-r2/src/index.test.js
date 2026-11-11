@@ -75,7 +75,7 @@ describe("artifact worker security helpers", () => {
     }
   });
 
-  test("serves signed R2 media with range support behind a path prefix", async () => {
+  test("serves signed R2 media as full, range, and attachment responses", async () => {
     const secret = "abcdef0123456789abcdef0123456789";
     const key = "new-api/v1/2026-11-10/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     const expires = Math.floor(Date.now() / 1000) + 300;
@@ -96,8 +96,11 @@ describe("artifact worker security helpers", () => {
       },
       async get(requestedKey, options) {
         expect(requestedKey).toBe(key);
-        expect(options.range.get("Range")).toBe("bytes=1-3");
-        return { ...object, body: new Response("ide").body, range: { offset: 1, length: 3 } };
+        if (options) {
+          expect(options.range.get("Range")).toBe("bytes=1-3");
+          return { ...object, body: new Response("ide").body, range: { offset: 1, length: 3 } };
+        }
+        return { ...object, body: new Response("video").body, range: { offset: 0, length: 5 } };
       },
     };
     const request = new Request(`https://media.example/artifacts/v1/media?key=${encodedKey}&expires=${expires}&sig=${signature}`, {
@@ -107,6 +110,20 @@ describe("artifact worker security helpers", () => {
     expect(response.status).toBe(206);
     expect(response.headers.get("Content-Range")).toBe("bytes 1-3/5");
     expect(response.headers.get("Content-Type")).toBe("video/mp4");
+    expect(response.headers.get("Content-Security-Policy")).toBeNull();
     expect(await response.text()).toBe("ide");
+
+    const fullResponse = await worker.fetch(new Request(
+      `https://media.example/artifacts/v1/media?key=${encodedKey}&expires=${expires}&sig=${signature}`,
+    ), { ARTIFACT_BUCKET: bucket, MEDIA_HMAC_SECRET: secret });
+    expect(fullResponse.status).toBe(200);
+    expect(fullResponse.headers.get("Content-Range")).toBeNull();
+    expect(await fullResponse.text()).toBe("video");
+
+    const downloadResponse = await worker.fetch(new Request(
+      `https://media.example/artifacts/v1/media?key=${encodedKey}&expires=${expires}&sig=${signature}&download=1`,
+    ), { ARTIFACT_BUCKET: bucket, MEDIA_HMAC_SECRET: secret });
+    expect(downloadResponse.status).toBe(200);
+    expect(downloadResponse.headers.get("Content-Disposition")).toBe('attachment; filename="artifact.mp4"');
   });
 });
