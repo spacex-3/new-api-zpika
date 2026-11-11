@@ -373,9 +373,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		if !slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindNewAPI) {
 			return normalizeModelNames(plugin.Meta.Models), nil
 		}
-		taskPluginModels = make(map[string]struct{}, len(plugin.Meta.Models))
-		for _, name := range plugin.Meta.Models {
-			taskPluginModels[name] = struct{}{}
+		if !slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindVendor) {
+			taskPluginModels = make(map[string]struct{}, len(plugin.Meta.Models))
+			for _, name := range plugin.Meta.Models {
+				taskPluginModels[name] = struct{}{}
+			}
 		}
 	}
 	baseURL := constant.GetChannelBaseURL(channel.Type)

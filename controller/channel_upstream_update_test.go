@@ -252,7 +252,7 @@ export function parseTaskResult() { return {}; }
 
 	models, err := fetchChannelUpstreamModelIDs(channel)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"video-b"}, models)
+	assert.Equal(t, []string{"video-b", "other"}, models)
 }
 
 func TestFetchModelsTaskPluginCreatePreviewUsesPluginKey(t *testing.T) {
