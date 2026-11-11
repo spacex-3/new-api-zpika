@@ -2021,7 +2021,7 @@ test('model configuration keeps unchecked candidates searchable and supports cat
 test('model configuration is available for a plugin channel without upstream discovery and is disabled when its model list is empty', async () => {
   const user = userEvent.setup()
   render(<ConfigurationHarness />)
-  await user.click(await screen.findByRole('option', { name: /Video A/ }))
+  await user.click(await screen.findByRole('option', { name: /No Address/ }))
   const trigger = screen.getByRole('button', { name: 'Configure Models' })
   expect(trigger).toBeEnabled()
   expect(
@@ -2031,11 +2031,37 @@ test('model configuration is available for a plugin channel without upstream dis
   const dialog = within(
     screen.getByRole('dialog', { name: 'Configure Models' })
   )
-  expect(dialog.getByRole('checkbox', { name: 'video-a-1' })).toBeChecked()
+  expect(dialog.getByRole('checkbox', { name: 'video-c-1' })).toBeChecked()
   await user.click(dialog.getByRole('button', { name: 'Cancel' }))
   await user.click(screen.getByRole('button', { name: 'Clear All' }))
 
   expect(trigger).toBeDisabled()
+})
+
+test('a vendor-capable task plugin can fetch models from a New API-compatible upstream', async () => {
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: ['video-a-1'] },
+  })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness />)
+
+  await user.click(await screen.findByRole('option', { name: /Video A/ }))
+  fireEvent.change(screen.getByLabelText('API Key *'), {
+    target: { value: 'gateway-key' },
+  })
+  await user.click(screen.getByRole('button', { name: 'Fetch from Upstream' }))
+
+  expect(
+    await screen.findByRole('checkbox', { name: 'video-a-1' })
+  ).toBeVisible()
+  expect(post).toHaveBeenCalledWith(
+    '/api/channel/fetch_models',
+    expect.objectContaining({
+      type: 61,
+      task_plugin_key: 'video-a',
+    }),
+    expect.anything()
+  )
 })
 
 test('a New API-only task plugin fetches and selects only upstream models', async () => {
@@ -2050,11 +2076,9 @@ test('a New API-only task plugin fetches and selects only upstream models', asyn
       upstreams: ['new_api'],
     },
   ]
-  const post = vi
-    .spyOn(api, 'post')
-    .mockResolvedValue({
-      data: { success: true, data: ['image-a', 'image-b'] },
-    })
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: ['image-a', 'image-b'] },
+  })
   const user = userEvent.setup()
   render(<ConfigurationHarness />)
 

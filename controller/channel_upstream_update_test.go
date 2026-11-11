@@ -227,7 +227,7 @@ export function parseTaskResult() { return {}; }
 	assert.Equal(t, "Bearer task-key", <-authorization)
 }
 
-func TestFetchVendorCapableTaskPluginModelsRemainStatic(t *testing.T) {
+func TestFetchVendorCapableTaskPluginModelsFromNewAPIUpstream(t *testing.T) {
 	const pluginKey = "model-list-vendor-capable"
 	_, err := jsplugin.DefaultRegistry.Register(`
 export const meta = {apiVersion: 1, key: "model-list-vendor-capable", name: "Vendor capable", version: "1.0.0", author: {name: "Test"}, models: ["video-a", "video-b"], upstreams: ["vendor", "new_api"], fetchMode: "per_task"};
@@ -239,13 +239,20 @@ export function parseTaskResult() { return {}; }
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(pluginKey)) })
 
-	baseURL := "http://127.0.0.1:1"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/models", r.URL.Path)
+		assert.Equal(t, "Bearer task-key", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"data":[{"id":"video-b"},{"id":"other"}]}`))
+	}))
+	defer server.Close()
+
+	baseURL := server.URL
 	channel := &model.Channel{Type: constant.ChannelTypeTaskPlugin, Key: "task-key", BaseURL: &baseURL}
 	channel.SetSetting(dto.ChannelSettings{TaskPluginKey: pluginKey})
 
 	models, err := fetchChannelUpstreamModelIDs(channel)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"video-a", "video-b"}, models)
+	assert.Equal(t, []string{"video-b"}, models)
 }
 
 func TestFetchModelsTaskPluginCreatePreviewUsesPluginKey(t *testing.T) {

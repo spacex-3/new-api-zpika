@@ -370,9 +370,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		if !ok {
 			return nil, fmt.Errorf("task plugin %q is not registered", channel.GetSetting().TaskPluginKey)
 		}
-		newAPIOnly := slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindNewAPI) &&
-			!slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindVendor)
-		if !newAPIOnly {
+		if !slices.Contains(plugin.Meta.Upstreams, jsplugin.UpstreamKindNewAPI) {
 			return normalizeModelNames(plugin.Meta.Models), nil
 		}
 		taskPluginModels = make(map[string]struct{}, len(plugin.Meta.Models))

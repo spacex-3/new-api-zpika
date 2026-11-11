@@ -795,12 +795,12 @@ export function ChannelMutateDrawer({
     boundTaskPlugin?.name ||
     (currentType === CHANNEL_TYPE_TASK_PLUGIN && currentTaskPluginKey) ||
     t(currentTypeLabel)
-  const taskPluginUsesNewAPIModelDiscovery =
+  const taskPluginSupportsNewAPIModelDiscovery =
     currentType === CHANNEL_TYPE_TASK_PLUGIN &&
-    boundTaskPlugin?.upstreams?.includes('new_api') === true &&
-    !boundTaskPlugin.upstreams.includes('vendor')
+    boundTaskPlugin?.upstreams?.includes('new_api') === true
   const canFetchModels =
-    MODEL_FETCHABLE_TYPES.has(currentType) || taskPluginUsesNewAPIModelDiscovery
+    MODEL_FETCHABLE_TYPES.has(currentType) ||
+    taskPluginSupportsNewAPIModelDiscovery
 
   const selectProvider = useCallback(
     (target: ChannelProviderTarget) => {
