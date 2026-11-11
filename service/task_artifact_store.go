@@ -316,6 +316,7 @@ func (s *workerR2ArtifactStore) Serve(c *gin.Context, _ *model.Task, ref *Stored
 	query.Set("sig", signature)
 	if c.Query("download") == "1" {
 		query.Set("download", "1")
+		query.Set("name", c.Param("artifact_key"))
 	}
 	mediaURL.RawQuery = query.Encode()
 	c.Header("Cache-Control", "private, no-store")

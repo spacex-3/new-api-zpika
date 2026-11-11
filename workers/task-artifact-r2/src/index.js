@@ -354,8 +354,43 @@ function applyObjectHeaders(object, headers) {
   }
 }
 
+function artifactExtension(contentType) {
+  const extensions = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+    "video/mpeg": "mpeg",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "application/pdf": "pdf",
+    "application/json": "json",
+    "application/zip": "zip",
+    "text/plain": "txt",
+  };
+  return extensions[String(contentType || "").split(";", 1)[0].trim().toLowerCase()] || "bin";
+}
+
+function artifactDownloadName(url, object, contentType) {
+  const requested = url.searchParams.get("name") || "";
+  const fallback = String(object.customMetadata && object.customMetadata.artifact_type || "artifact");
+  const basename = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/.test(requested) ? requested : fallback;
+  return `${basename}.${artifactExtension(contentType)}`;
+}
+
 async function handleMedia(request, env) {
-  const verified = await verifyMediaURL(new URL(request.url), env);
+  const url = new URL(request.url);
+  const verified = await verifyMediaURL(url, env);
   if (!verified) return json({ error: "not_found" }, 404);
   const head = await env.ARTIFACT_BUCKET.head(verified.key);
   if (!head) return json({ error: "not_found" }, 404);
@@ -378,10 +413,8 @@ async function handleMedia(request, env) {
     : await env.ARTIFACT_BUCKET.get(verified.key);
   if (!object) return json({ error: "not_found" }, 404);
   applyObjectHeaders(object, headers);
-  if (new URL(request.url).searchParams.get("download") === "1") {
-    const contentType = (headers.get("Content-Type") || "").toLowerCase();
-    const extension = contentType === "video/mp4" ? "mp4" : contentType === "audio/mpeg" ? "mp3" : "bin";
-    headers.set("Content-Disposition", `attachment; filename="artifact.${extension}"`);
+  if (url.searchParams.get("download") === "1") {
+    headers.set("Content-Disposition", `attachment; filename="${artifactDownloadName(url, object, headers.get("Content-Type"))}"`);
   }
   if (range && object.range) {
     headers.set("Content-Range", `bytes ${object.range.offset}-${object.range.offset + object.range.length - 1}/${object.size}`);

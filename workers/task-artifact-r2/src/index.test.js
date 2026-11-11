@@ -121,9 +121,24 @@ describe("artifact worker security helpers", () => {
     expect(await fullResponse.text()).toBe("video");
 
     const downloadResponse = await worker.fetch(new Request(
-      `https://media.example/artifacts/v1/media?key=${encodedKey}&expires=${expires}&sig=${signature}&download=1`,
+      `https://media.example/artifacts/v1/media?key=${encodedKey}&expires=${expires}&sig=${signature}&download=1&name=video`,
     ), { ARTIFACT_BUCKET: bucket, MEDIA_HMAC_SECRET: secret });
     expect(downloadResponse.status).toBe(200);
-    expect(downloadResponse.headers.get("Content-Disposition")).toBe('attachment; filename="artifact.mp4"');
+    expect(downloadResponse.headers.get("Content-Disposition")).toBe('attachment; filename="video.mp4"');
+
+    const imageObject = {
+      ...object,
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: { ...object.customMetadata, artifact_type: "image" },
+      writeHttpMetadata(headers) { headers.set("Content-Type", "image/png"); },
+    };
+    const imageBucket = {
+      async head() { return imageObject; },
+      async get() { return { ...imageObject, body: new Response("image").body }; },
+    };
+    const imageDownload = await worker.fetch(new Request(
+      `https://media.example/artifacts/v1/media?key=${encodedKey}&expires=${expires}&sig=${signature}&download=1&name=image-1`,
+    ), { ARTIFACT_BUCKET: imageBucket, MEDIA_HMAC_SECRET: secret });
+    expect(imageDownload.headers.get("Content-Disposition")).toBe('attachment; filename="image-1.png"');
   });
 });

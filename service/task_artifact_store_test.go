@@ -157,10 +157,12 @@ func TestWorkerArtifactServeRedirectsToSignedPrefixedMediaURL(t *testing.T) {
 	downloadRecorder := httptest.NewRecorder()
 	downloadContext, _ := gin.CreateTestContext(downloadRecorder)
 	downloadContext.Request = httptest.NewRequest(http.MethodGet, "/artifact?download=1", nil)
+	downloadContext.Params = gin.Params{{Key: "artifact_key", Value: "video"}}
 	require.NoError(t, store.Serve(downloadContext, &model.Task{}, ref))
 	downloadLocation, err := url.Parse(downloadRecorder.Header().Get("Location"))
 	require.NoError(t, err)
 	assert.Equal(t, "1", downloadLocation.Query().Get("download"))
+	assert.Equal(t, "video", downloadLocation.Query().Get("name"))
 }
 
 func TestWorkerArtifactPersistCarriesCredentialOnlyInSignedJob(t *testing.T) {
