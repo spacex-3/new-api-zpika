@@ -12,12 +12,14 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
 	taskplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,6 +56,42 @@ func TestDoubaoResponsesProtocol(t *testing.T) {
 		wantUsageKeys:  []string{"resolution", "tokens", "video_input"},
 		wantVendorName: "doubao",
 	})
+}
+
+func TestDoubaoOpenAIVideoReturnsGatewayArtifactURL(t *testing.T) {
+	_, plugin := newDoubaoPlugin(t)
+	previousPublicAddress := system_setting.TaskPublicAddress
+	previousCryptoSecret := common.CryptoSecret
+	system_setting.TaskPublicAddress = "https://vip-test.zpika.com"
+	common.CryptoSecret = "test-task-artifact-access-secret"
+	t.Cleanup(func() {
+		system_setting.TaskPublicAddress = previousPublicAddress
+		common.CryptoSecret = previousCryptoSecret
+	})
+
+	task := &model.Task{
+		TaskID:     "task_public_video",
+		Status:     model.TaskStatusSuccess,
+		Progress:   "100%",
+		FinishTime: 1700000100,
+		Properties: model.Properties{OriginModelName: "doubao-seedance-2-0-mini-260615"},
+	}
+	task.SetData(map[string]any{
+		"status":  "succeeded",
+		"content": map[string]any{"video_url": "https://upstream.example/video.mp4?secret=hidden"},
+	})
+
+	rendered, err := taskplugin.New(plugin).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(rendered, &response))
+	content, ok := response["content"].(map[string]any)
+	require.True(t, ok)
+	videoURL, ok := content["video_url"].(string)
+	require.True(t, ok)
+	assert.Contains(t, videoURL, "https://vip-test.zpika.com/v1/tasks/task_public_video/artifacts/video/content?access=")
+	assert.NotContains(t, string(rendered), "upstream.example")
+	assert.NotContains(t, string(rendered), "secret=hidden")
 }
 
 func newDoubaoPlugin(t *testing.T) (*jsplugin.Registry, *jsplugin.LoadedPlugin) {

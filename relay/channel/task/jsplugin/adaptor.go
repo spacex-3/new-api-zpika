@@ -1188,10 +1188,16 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	rendererContext := map[string]any{"protocol": "openai_video", "operation": "retrieve"}
+	artifacts, err := RendererArtifacts(a.plugin, task, service.BuildTaskArtifactContentURL)
+	if err != nil {
+		return nil, err
+	}
+	rendererContext["artifacts"] = artifacts
 	// Decoding into any leaves only encoding failures to CallPathInto, so they
 	// keep the codec's message.
 	var value any
-	err = a.plugin.Engine.CallPathInto(context.Background(), &value, "protocols", []string{"openai_video", "render"}, map[string]any{"protocol": "openai_video", "operation": "retrieve"}, pluginruntime.RawJSON(encodedView))
+	err = a.plugin.Engine.CallPathInto(context.Background(), &value, "protocols", []string{"openai_video", "render"}, rendererContext, pluginruntime.RawJSON(encodedView))
 	if err != nil {
 		return nil, err
 	}
