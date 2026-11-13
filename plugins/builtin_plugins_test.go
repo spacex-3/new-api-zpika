@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var expectedKeys = []string{"alibaba", "cangyuan", "doubao", "google", "hailuo", "jimeng", "kling", "sora", "sunoapi", "vertex-ai", "vidu", "xai"}
+var expectedKeys = []string{"alibaba", "cangyuan", "doubao", "google", "hailuo", "jimeng", "kling", "maitoken", "sora", "sunoapi", "vertex-ai", "vidu", "xai"}
 
 func TestBuiltInVendorPluginsDeclareNativeRoutesAndLegacyChannelTypes(t *testing.T) {
 	generation := jsplugin.DefaultRegistry.Generation()
@@ -171,12 +171,14 @@ func TestBuiltInTaskPluginResponsesAndUsageContracts(t *testing.T) {
 					break
 				}
 			}
-			if key == "cangyuan" {
+			if key == "cangyuan" || key == "maitoken" {
 				assert.False(t, foundResponses, "text requests must remain on the ordinary relay")
-				assert.True(t, plugin.Meta.ProtocolSupports(jsplugin.ProtocolOpenAIImage, "sync"))
-				assert.True(t, plugin.Meta.ProtocolSupports(jsplugin.ProtocolOpenAIImage, "background"))
-				_, claimed := registry.Generation().LookupEndpoint("POST", "/v1/videos", "grok-video-1.5")
-				assert.True(t, claimed)
+				if key == "cangyuan" {
+					assert.True(t, plugin.Meta.ProtocolSupports(jsplugin.ProtocolOpenAIImage, "sync"))
+					assert.True(t, plugin.Meta.ProtocolSupports(jsplugin.ProtocolOpenAIImage, "background"))
+					_, claimed := registry.Generation().LookupEndpoint("POST", "/v1/videos", "grok-video-1.5")
+					assert.True(t, claimed)
+				}
 			} else {
 				require.True(t, foundResponses, "openai_responses claim must be present")
 				assert.Equal(t, []string{"stream", "sync", "background"}, responsesClaim.Supports)
@@ -205,7 +207,7 @@ func TestBuiltInTaskPluginResponsesAndUsageContracts(t *testing.T) {
 func TestBuiltInResponsesDecodersEchoChannelMappedAlias(t *testing.T) {
 	bodyOverrides := map[string]map[string]any{}
 	for _, key := range expectedKeys {
-		if key == "cangyuan" {
+		if key == "cangyuan" || key == "maitoken" {
 			continue
 		}
 		t.Run(key, func(t *testing.T) {
