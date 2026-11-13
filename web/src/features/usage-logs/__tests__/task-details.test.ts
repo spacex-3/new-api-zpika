@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'vitest'
 
-import { resolveTaskDetailAccess } from '../lib/task-details'
+import {
+  resolveTaskDetailAccess,
+  resolveVolcengineTaskId,
+} from '../lib/task-details'
 import type { TaskLog } from '../types'
 
 const task: TaskLog = {
@@ -57,6 +60,23 @@ const task: TaskLog = {
 }
 
 describe('task detail access', () => {
+  test('reads MAI Volcengine task id from the persisted task snapshot', () => {
+    assert.equal(
+      resolveVolcengineTaskId({
+        platform: 'maitoken',
+        data: { cgt_id: 'cgt-20261113140254-h2cic' },
+      }),
+      'cgt-20261113140254-h2cic'
+    )
+    assert.equal(
+      resolveVolcengineTaskId({
+        platform: 'doubao',
+        data: { cgt_id: 'cgt-should-not-show' },
+      }),
+      undefined
+    )
+  })
+
   test('does not expose elevated fields in a self view', () => {
     assert.deepEqual(resolveTaskDetailAccess(task, false, false), {})
   })

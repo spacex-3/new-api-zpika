@@ -28,7 +28,10 @@ import { translateServerText } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
-import { resolveTaskDetailAccess } from '../../lib/task-details'
+import {
+  resolveTaskDetailAccess,
+  resolveVolcengineTaskId,
+} from '../../lib/task-details'
 import type { TaskLog } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
 
@@ -88,6 +91,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
   const plugin = access.plugin
   const runtime = access.runtime
   const properties = props.log.properties
+  const volcengineTaskId = resolveVolcengineTaskId(props.log)
 
   return (
     <Dialog
@@ -117,6 +121,13 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
       <div className='space-y-3'>
         <DetailSection label={t('Basic Information')}>
           <DetailRow label={t('Task ID')} value={props.log.task_id} mono />
+          {volcengineTaskId ? (
+            <DetailRow
+              label={t('Volcengine Task ID')}
+              value={volcengineTaskId}
+              mono
+            />
+          ) : null}
           <DetailRow label={t('Platform')} value={props.log.platform} mono />
           <DetailRow
             label={t('Action')}

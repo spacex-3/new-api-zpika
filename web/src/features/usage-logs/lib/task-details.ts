@@ -25,6 +25,21 @@ export interface TaskDetailAccess {
   nodeName?: string
 }
 
+export function resolveVolcengineTaskId(
+  log: Pick<TaskLog, 'platform' | 'data'>
+): string | undefined {
+  if (
+    log.platform !== 'maitoken' ||
+    !log.data ||
+    typeof log.data !== 'object'
+  ) {
+    return undefined
+  }
+
+  const cgtId = (log.data as Record<string, unknown>).cgt_id
+  return typeof cgtId === 'string' && cgtId.trim() ? cgtId.trim() : undefined
+}
+
 export function resolveTaskDetailAccess(
   log: TaskLog,
   isAdmin: boolean,
