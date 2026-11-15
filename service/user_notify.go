@@ -2,9 +2,14 @@ package service
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +17,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
+
+const barkEncryptionKeyEnv = "BARK_ENCRYPTION_KEY"
 
 // NotifyChannelWatchers sends a channel notice (a channel disabled or enabled
 // automatically, or a test of all channels finished) to every administrator
@@ -24,7 +31,18 @@ func NotifyChannelWatchers(notifyType string, render func(lang string) (subject 
 			return *setting.ChannelNotifyEnabled
 		}
 		return role == common.RoleRootUser
-	}, render)
+	}, render, false)
+}
+
+// NotifyChannelErrorWatchers encrypts Bark deliveries for channel error alerts.
+// Other delivery methods keep their existing behavior.
+func NotifyChannelErrorWatchers(notifyType string, render func(lang string) (subject string, content string)) {
+	notifyAdmins(notifyType, func(role int, setting dto.UserSetting) bool {
+		if setting.ChannelNotifyEnabled != nil {
+			return *setting.ChannelNotifyEnabled
+		}
+		return role == common.RoleRootUser
+	}, render, true)
 }
 
 // NotifyUpstreamModelUpdateWatchers sends the upstream model update notice to
@@ -33,13 +51,13 @@ func NotifyChannelWatchers(notifyType string, render func(lang string) (subject 
 func NotifyUpstreamModelUpdateWatchers(render func(lang string) (subject string, content string)) {
 	sentCount := notifyAdmins(dto.NotifyTypeChannelUpdate, func(_ int, setting dto.UserSetting) bool {
 		return setting.UpstreamModelUpdateNotifyEnabled
-	}, render)
+	}, render, false)
 	common.SysLog(common.LogText("upstream model update notifications sent: %d", sentCount))
 }
 
 // notifyAdmins sends a notice to each enabled administrator for whom receives
 // returns true, and returns how many notices it sent.
-func notifyAdmins(notifyType string, receives func(role int, setting dto.UserSetting) bool, render func(lang string) (subject string, content string)) int {
+func notifyAdmins(notifyType string, receives func(role int, setting dto.UserSetting) bool, render func(lang string) (subject string, content string), encryptBark bool) int {
 	var users []model.User
 	if err := model.DB.
 		Select("id", "email", "role", "status", "setting").
@@ -56,7 +74,7 @@ func notifyAdmins(notifyType string, receives func(role int, setting dto.UserSet
 			continue
 		}
 		subject, content := render(userSetting.Language)
-		if err := NotifyUser(user.Id, user.Email, userSetting, dto.NewNotify(notifyType, subject, content, nil)); err != nil {
+		if err := notifyUser(user.Id, user.Email, userSetting, dto.NewNotify(notifyType, subject, content, nil), encryptBark); err != nil {
 			common.SysLog(common.LogText("failed to send notice %s to user %d: %s", notifyType, user.Id, err.Error()))
 			continue
 		}
@@ -66,6 +84,10 @@ func notifyAdmins(notifyType string, receives func(role int, setting dto.UserSet
 }
 
 func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data dto.Notify) error {
+	return notifyUser(userId, userEmail, userSetting, data, false)
+}
+
+func notifyUser(userId int, userEmail string, userSetting dto.UserSetting, data dto.Notify, encryptBark bool) error {
 	notifyType := userSetting.NotifyType
 	if notifyType == "" {
 		notifyType = dto.NotifyTypeEmail
@@ -109,7 +131,7 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 			common.SysLog(common.LogText("user %d has no bark url, skip sending bark", userId))
 			return nil
 		}
-		return sendBarkNotify(barkURL, data)
+		return sendBarkNotify(barkURL, data, encryptBark)
 	case dto.NotifyTypeGotify:
 		gotifyUrl := userSetting.GotifyUrl
 		gotifyToken := userSetting.GotifyToken
@@ -132,16 +154,22 @@ func sendEmailNotify(userEmail string, data dto.Notify) error {
 	return common.SendEmail(data.Title, userEmail, content)
 }
 
-func sendBarkNotify(barkURL string, data dto.Notify) error {
+func sendBarkNotify(barkURL string, data dto.Notify, encrypt bool) error {
 	// 处理占位符
 	content := data.Content
 	for _, value := range data.Values {
 		content = strings.Replace(content, dto.ContentValueParam, fmt.Sprintf("%v", value), 1)
 	}
 
-	// 替换模板变量
 	finalURL := strings.ReplaceAll(barkURL, "{{title}}", url.QueryEscape(data.Title))
 	finalURL = strings.ReplaceAll(finalURL, "{{content}}", url.QueryEscape(content))
+	if encrypt {
+		var err error
+		finalURL, err = encryptedBarkURL(barkURL, data.Title, content)
+		if err != nil {
+			return err
+		}
+	}
 
 	// 发送GET请求到Bark
 	var req *http.Request
@@ -199,6 +227,75 @@ func sendBarkNotify(barkURL string, data dto.Notify) error {
 	}
 
 	return nil
+}
+
+func encryptedBarkURL(barkURL string, title string, content string) (string, error) {
+	key := os.Getenv(barkEncryptionKeyEnv)
+	if len(key) != 32 {
+		return "", fmt.Errorf("%s must contain exactly 32 bytes", barkEncryptionKeyEnv)
+	}
+	for i := range len(key) {
+		if key[i] < 0x21 || key[i] > 0x7e {
+			return "", fmt.Errorf("%s must contain 32 printable ASCII characters", barkEncryptionKeyEnv)
+		}
+	}
+
+	endpoint, err := url.Parse(barkURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse bark url: %v", err)
+	}
+	pathParts := strings.Split(endpoint.EscapedPath(), "/")
+	for i, part := range pathParts {
+		decoded, decodeErr := url.PathUnescape(part)
+		if decodeErr != nil {
+			return "", fmt.Errorf("failed to parse bark url path: %v", decodeErr)
+		}
+		if strings.Contains(decoded, "{{title}}") || strings.Contains(decoded, "{{content}}") {
+			pathParts = pathParts[:i]
+			break
+		}
+	}
+	endpoint.RawPath = strings.Join(pathParts, "/")
+	endpoint.Path, err = url.PathUnescape(endpoint.RawPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse bark url path: %v", err)
+	}
+	query := endpoint.Query()
+	for name, values := range query {
+		for _, value := range values {
+			if strings.Contains(value, "{{title}}") || strings.Contains(value, "{{content}}") {
+				query.Del(name)
+				break
+			}
+		}
+	}
+
+	payload, err := common.Marshal(map[string]string{"title": title, "body": content})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal bark payload: %v", err)
+	}
+	block, err := aes.NewCipher([]byte(key))
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize bark encryption: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize bark encryption: %v", err)
+	}
+	iv := make([]byte, gcm.NonceSize())
+	const ivAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	random := make([]byte, len(iv))
+	if _, err = rand.Read(random); err != nil {
+		return "", fmt.Errorf("failed to generate bark encryption iv: %v", err)
+	}
+	for i := range iv {
+		iv[i] = ivAlphabet[int(random[i])%len(ivAlphabet)]
+	}
+
+	query.Set("ciphertext", base64.StdEncoding.EncodeToString(gcm.Seal(nil, iv, payload, nil)))
+	query.Set("iv", string(iv))
+	endpoint.RawQuery = query.Encode()
+	return endpoint.String(), nil
 }
 
 func sendGotifyNotify(gotifyUrl string, gotifyToken string, priority int, data dto.Notify) error {

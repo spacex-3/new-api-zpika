@@ -1,10 +1,13 @@
 package service
 
 import (
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -14,6 +17,54 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
+
+const (
+	channelErrorAlertThreshold = 10
+	channelErrorAlertWindow    = time.Minute
+)
+
+type channelErrorWindow struct {
+	failures []time.Time
+	notified bool
+}
+
+type channelErrorAlertTracker struct {
+	mu       sync.Mutex
+	channels map[int]channelErrorWindow
+}
+
+var channelErrorAlerts = channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
+
+func (t *channelErrorAlertTracker) record(channelID int, now time.Time) (int, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	window := t.channels[channelID]
+	cutoff := now.Add(-channelErrorAlertWindow)
+	firstActive := 0
+	for firstActive < len(window.failures) && !window.failures[firstActive].After(cutoff) {
+		firstActive++
+	}
+	window.failures = window.failures[firstActive:]
+	if len(window.failures) == 0 {
+		window.notified = false
+	}
+	window.failures = append(window.failures, now)
+	if len(window.failures) > channelErrorAlertThreshold+1 {
+		window.failures = window.failures[len(window.failures)-(channelErrorAlertThreshold+1):]
+	}
+	shouldNotify := len(window.failures) > channelErrorAlertThreshold && !window.notified
+	if shouldNotify {
+		window.notified = true
+	}
+	t.channels[channelID] = window
+	return len(window.failures), shouldNotify
+}
+
+func (t *channelErrorAlertTracker) reset(channelID int) {
+	t.mu.Lock()
+	delete(t.channels, channelID)
+	t.mu.Unlock()
+}
 
 // DecideRelayRetry is the single retry decision for relay attempts. The reason
 // is recorded in the request policy decision events of the log details.
@@ -66,6 +117,23 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	}
 	upstreamURLs := common.UpstreamAddresses(c)
 	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
+	if channelError.ChannelId > 0 {
+		if count, shouldNotify := channelErrorAlerts.record(channelError.ChannelId, time.Now()); shouldNotify {
+			errorCode := string(err.GetErrorCode())
+			if errorCode == "" {
+				errorCode = "unknown"
+			}
+			params := map[string]any{
+				"Name": channelError.ChannelName, "Id": channelError.ChannelId, "Count": count,
+				"ErrorCode": errorCode, "StatusCode": err.StatusCode,
+			}
+			gopool.Go(func() {
+				NotifyChannelErrorWatchers(fmt.Sprintf("channel_error_%d", channelError.ChannelId), func(lang string) (string, string) {
+					return i18n.Translate(lang, i18n.MsgChannelErrorBurstSubject, params), i18n.Translate(lang, i18n.MsgChannelErrorBurstContent, params)
+				})
+			})
+		}
+	}
 	if ShouldDisableChannel(err) && channelError.AutoBan {
 		reason := err.MaskSensitiveErrorWithStatusCode(upstreamURLs...)
 		gopool.Go(func() {

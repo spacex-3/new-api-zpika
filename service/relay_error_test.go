@@ -57,6 +57,126 @@ func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 	}
 }
 
+func TestChannelErrorAlertTrackerThresholdWindowAndReset(t *testing.T) {
+	tracker := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
+	startedAt := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
+	for count := 1; count <= channelErrorAlertThreshold; count++ {
+		gotCount, notify := tracker.record(7, startedAt.Add(time.Duration(count)*time.Second))
+		assert.Equal(t, count, gotCount)
+		assert.False(t, notify)
+	}
+	gotCount, notify := tracker.record(7, startedAt.Add(11*time.Second))
+	assert.Equal(t, 11, gotCount)
+	assert.True(t, notify)
+	_, notify = tracker.record(7, startedAt.Add(12*time.Second))
+	assert.False(t, notify, "the same one-minute window must only notify once")
+
+	gotCount, notify = tracker.record(8, startedAt.Add(12*time.Second))
+	assert.Equal(t, 1, gotCount)
+	assert.False(t, notify, "channels must have independent counters")
+
+	tracker.reset(7)
+	gotCount, notify = tracker.record(7, startedAt.Add(13*time.Second))
+	assert.Equal(t, 1, gotCount)
+	assert.False(t, notify)
+
+	gotCount, notify = tracker.record(7, startedAt.Add(channelErrorAlertWindow+14*time.Second))
+	assert.Equal(t, 1, gotCount)
+	assert.False(t, notify, "an expired window must start from one")
+
+	rolling := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
+	for count := range channelErrorAlertThreshold {
+		_, notify = rolling.record(9, startedAt.Add(time.Duration(count*6)*time.Second))
+		assert.False(t, notify)
+	}
+	gotCount, notify = rolling.record(9, startedAt.Add(60*time.Second))
+	assert.Equal(t, channelErrorAlertThreshold, gotCount)
+	assert.False(t, notify)
+	gotCount, notify = rolling.record(9, startedAt.Add(61*time.Second))
+	assert.Equal(t, channelErrorAlertThreshold+1, gotCount)
+	assert.True(t, notify, "errors spanning the original window boundary must still alert")
+}
+
+func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
+	previousDB, previousType := model.DB, common.MainDatabaseType()
+	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
+	previousAutoDisable, previousErrorLog := common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled
+	previousNotifyLimit := constant.NotifyLimitCount
+	previousClient, previousWorker := httpClient, system_setting.WorkerUrl
+	fetch := system_setting.GetFetchSetting()
+	previousFetch := *fetch
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousType)
+		common.MemoryCacheEnabled, common.RedisEnabled = previousCache, previousRedis
+		common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled = previousAutoDisable, previousErrorLog
+		constant.NotifyLimitCount = previousNotifyLimit
+		httpClient, system_setting.WorkerUrl = previousClient, previousWorker
+		*fetch = previousFetch
+	})
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, database.AutoMigrate(&model.User{}))
+	model.DB = database
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	common.MemoryCacheEnabled, common.RedisEnabled = false, false
+	common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled = false, false
+	constant.NotifyLimitCount = 10
+
+	notifications := make(chan WebhookPayload, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload WebhookPayload
+		if common.DecodeJson(r.Body, &payload) == nil {
+			notifications <- payload
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	httpClient, system_setting.WorkerUrl = server.Client(), ""
+	fetch.EnableSSRFProtection = false
+	settings, err := common.Marshal(kitdto.UserSetting{NotifyType: kitdto.NotifyTypeWebhook, WebhookUrl: server.URL})
+	require.NoError(t, err)
+	root := &model.User{Username: "burst-notification-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Setting: string(settings)}
+	require.NoError(t, database.Create(root).Error)
+
+	const channelID = 77
+	channelErrorAlerts.reset(channelID)
+	notifyKey := fmt.Sprintf("%d:channel_error_%d", root.Id, channelID)
+	notifyLimitStore.Delete(notifyKey)
+	t.Cleanup(func() {
+		channelErrorAlerts.reset(channelID)
+		notifyLimitStore.Delete(notifyKey)
+	})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	apiErr := types.WithOpenAIError(types.OpenAIError{Message: "invalid credential", Type: "invalid_request_error", Code: "invalid_api_key"}, http.StatusUnauthorized)
+	channelError := types.ChannelError{ChannelId: channelID, ChannelName: "edge-singapore"}
+	for range channelErrorAlertThreshold {
+		ProcessChannelError(c, channelError, apiErr, nil)
+	}
+	select {
+	case <-notifications:
+		t.Fatal("notification was sent before the threshold was exceeded")
+	default:
+	}
+	ProcessChannelError(c, channelError, apiErr, nil)
+
+	select {
+	case notification := <-notifications:
+		assert.Equal(t, fmt.Sprintf("channel_error_%d", channelID), notification.Type)
+		assert.Equal(t, "Repeated channel errors", notification.Title)
+		assert.Contains(t, notification.Content, `Channel "edge-singapore" (#77)`)
+		assert.Contains(t, notification.Content, "11 consecutive times")
+		assert.Contains(t, notification.Content, "Error code: invalid_api_key")
+		assert.Contains(t, notification.Content, "HTTP status: 401")
+	case <-time.After(5 * time.Second):
+		t.Fatal("channel error burst notification was not delivered")
+	}
+}
+
 func TestProcessChannelErrorMasksDisableReasonAndNotification(t *testing.T) {
 	previousDB, previousType := model.DB, common.MainDatabaseType()
 	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled

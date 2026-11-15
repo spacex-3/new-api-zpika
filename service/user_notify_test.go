@@ -1,9 +1,13 @@
 package service
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +25,48 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestEncryptedBarkURLMatchesAppAES256GCMFormat(t *testing.T) {
+	const key = "0123456789abcdef0123456789abcdef"
+	t.Setenv(barkEncryptionKeyEnv, key)
+
+	finalURL, err := encryptedBarkURL(
+		"https://bark.example/device-key/{{title}}/{{content}}?group=channel-alerts",
+		"Repeated channel errors",
+		"Channel edge (#7) failed 11 times",
+	)
+	require.NoError(t, err)
+	assert.NotContains(t, finalURL, "Repeated")
+	assert.NotContains(t, finalURL, "failed")
+
+	parsed, err := url.Parse(finalURL)
+	require.NoError(t, err)
+	assert.Equal(t, "/device-key", parsed.Path)
+	assert.Equal(t, "channel-alerts", parsed.Query().Get("group"))
+	iv := []byte(parsed.Query().Get("iv"))
+	assert.Len(t, iv, 12)
+	ciphertext, err := base64.StdEncoding.DecodeString(parsed.Query().Get("ciphertext"))
+	require.NoError(t, err)
+
+	block, err := aes.NewCipher([]byte(key))
+	require.NoError(t, err)
+	gcm, err := cipher.NewGCM(block)
+	require.NoError(t, err)
+	plaintext, err := gcm.Open(nil, iv, ciphertext, nil)
+	require.NoError(t, err)
+	var payload map[string]string
+	require.NoError(t, common.Unmarshal(plaintext, &payload))
+	assert.Equal(t, map[string]string{
+		"title": "Repeated channel errors",
+		"body":  "Channel edge (#7) failed 11 times",
+	}, payload)
+}
+
+func TestEncryptedBarkURLRequiresAES256Key(t *testing.T) {
+	t.Setenv(barkEncryptionKeyEnv, "too-short")
+	_, err := encryptedBarkURL("https://bark.example/device-key", "title", "body")
+	require.ErrorContains(t, err, "exactly 32 bytes")
+}
 
 // A low-balance reminder goes out once, on the charge that takes a wallet or
 // subscription balance below the threshold. A balance already below it earns

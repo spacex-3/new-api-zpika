@@ -81,6 +81,8 @@ channel.notify_disabled_subject: "通道「{{.Name}}」（#{{.Id}}）已被禁�
 channel.notify_disabled_content: "通道「{{.Name}}」（#{{.Id}}）已被禁用，原因：{{.Reason}}"
 channel.notify_enabled_subject: "通道「{{.Name}}」（#{{.Id}}）已被启用"
 channel.notify_enabled_content: "通道「{{.Name}}」（#{{.Id}}）已被启用"
+channel.error_burst_subject: "渠道连续错误告警"
+channel.error_burst_content: "渠道「{{.Name}}」（#{{.Id}}）在一分钟内连续报错 {{.Count}} 次。错误代码：{{.ErrorCode}}；HTTP 状态码：{{.StatusCode}}。"
 channel.test_completed_subject: "通道测试完成"
 channel.test_completed_content: "所有通道测试已完成"
 channel.response_time_exceeded: "响应时间 {{.Seconds}}s 超过阈值 {{.Threshold}}s"

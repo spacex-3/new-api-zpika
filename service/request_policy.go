@@ -141,6 +141,9 @@ func MarkRequestPolicySuccess(c *gin.Context, stream *relaycommon.StreamStatus) 
 	if c != nil {
 		channelID = c.GetInt("channel_id")
 	}
+	if state.Successful && channelID > 0 {
+		channelErrorAlerts.reset(channelID)
+	}
 	state.AddEvent(PolicyEvent{ChannelID: channelID, Decision: decision})
 }
 
