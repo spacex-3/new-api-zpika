@@ -217,6 +217,20 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
+	if option.Key == degradationMonitorURLKey {
+		option.Value = strings.TrimRight(strings.TrimSpace(option.Value.(string)), "/")
+		if err := validateDegradationMonitorURL(option.Value.(string)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	if option.Key == degradationMonitorUserVisibleKey && option.Value == "true" {
+		monitorURL, _ := degradationMonitorSettings()
+		if monitorURL == "" {
+			common.ApiErrorT(c, "Configure the degradation monitor URL before making it visible to users")
+			return
+		}
+	}
 	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {

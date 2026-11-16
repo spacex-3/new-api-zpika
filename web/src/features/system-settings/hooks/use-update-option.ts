@@ -30,6 +30,8 @@ import type { UpdateOptionRequest, UpdatePasskeyDomainsRequest } from '../types'
 const STATUS_RELATED_KEYS = new Set([
   'HeaderNavModules',
   'SidebarModulesAdmin',
+  'DegradationMonitorURL',
+  'DegradationMonitorUserVisible',
   'Notice',
   'LogConsumeEnabled',
   'log_setting.user_export_enabled',

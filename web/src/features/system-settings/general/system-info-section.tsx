@@ -31,6 +31,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -50,6 +51,8 @@ const _systemInfoSchema = z.object({
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
   TaskPublicAddress: z.string().refine(isValidTaskPublicAddress),
+  DegradationMonitorURL: z.string(),
+  DegradationMonitorUserVisible: z.boolean(),
   Logo: z.string().url().optional().or(z.literal('')),
   Footer: z.string().optional(),
   About: z.string().optional(),
@@ -82,6 +85,10 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
     TaskPublicAddress: normalizeValue(defaultValues.TaskPublicAddress),
+    DegradationMonitorURL: normalizeValue(defaultValues.DegradationMonitorURL),
+    DegradationMonitorUserVisible: Boolean(
+      defaultValues.DegradationMonitorUserVisible
+    ),
     Logo: normalizeValue(defaultValues.Logo),
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
@@ -106,6 +113,21 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
           'Enter an absolute HTTP(S) URL without credentials, query parameters, or fragments'
         ),
     }),
+    DegradationMonitorURL: z.string().refine((value) => {
+      if (value === '') return true
+      try {
+        const parsed = new URL(value)
+        return (
+          parsed.protocol === 'https:' &&
+          parsed.username === '' &&
+          parsed.password === '' &&
+          parsed.hash === ''
+        )
+      } catch {
+        return false
+      }
+    }, t('Enter a valid HTTPS monitor URL without credentials or fragments')),
+    DegradationMonitorUserVisible: z.boolean(),
     Logo: z.string().url().optional().or(z.literal('')),
     Footer: z.string().optional(),
     About: z.string().optional(),
@@ -128,9 +150,20 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       >,
       defaultValues: normalizedDefaults,
       onSubmit: async (_data, changedFields) => {
-        for (const [key, value] of Object.entries(changedFields)) {
+        const entries = Object.entries(changedFields).sort(
+          ([left], [right]) => {
+            if (left === 'DegradationMonitorURL') return -1
+            if (right === 'DegradationMonitorURL') return 1
+            return 0
+          }
+        )
+        for (const [key, value] of entries) {
           let v = normalizeValue(value)
-          if (key === 'ServerAddress' || key === 'TaskPublicAddress') {
+          if (
+            key === 'ServerAddress' ||
+            key === 'TaskPublicAddress' ||
+            key === 'DegradationMonitorURL'
+          ) {
             v = v.replace(/\/+$/, '')
           }
           await updateOption.mutateAsync({
@@ -210,6 +243,51 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                       )}
                     </FormDescription>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='DegradationMonitorURL'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Degradation Monitor URL')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://monitor.example.com/embed'
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'HTTPS page embedded by the degradation monitor menu.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='DegradationMonitorUserVisible'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between gap-4 py-2.5'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>
+                        {t('Show degradation monitor to users')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t('Administrators can always access the monitor.')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
                   </FormItem>
                 )}
               />

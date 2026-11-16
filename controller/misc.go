@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -46,6 +47,7 @@ func GetStatus(c *gin.Context) {
 	defer common.OptionMapRWMutex.RUnlock()
 
 	legalSetting := system_setting.GetLegalSettings()
+	degradationMonitorURL := strings.TrimSpace(common.OptionMap[degradationMonitorURLKey])
 
 	data := gin.H{
 		"version":                     common.Version,
@@ -107,6 +109,8 @@ func GetStatus(c *gin.Context) {
 		// 模块管理配置
 		"HeaderNavModules":    common.OptionMap["HeaderNavModules"],
 		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
+		"degradation_monitor_configured":   degradationMonitorURL != "",
+		"degradation_monitor_user_visible": degradationMonitorURL != "" && common.OptionMap[degradationMonitorUserVisibleKey] == "true",
 
 		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
 		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,

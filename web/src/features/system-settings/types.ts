@@ -149,6 +149,8 @@ export type SiteSettings = {
   HomePageContent: string
   ServerAddress: string
   TaskPublicAddress: string
+  DegradationMonitorURL: string
+  DegradationMonitorUserVisible: boolean
   'general_setting.docs_link': string
   'legal.user_agreement': string
   'legal.privacy_policy': string

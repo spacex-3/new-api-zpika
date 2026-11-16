@@ -66,17 +66,24 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
 })
 
-function sidebarFor(admin?: object, user?: object, canConfigure = true) {
+function sidebarFor(
+  admin?: object,
+  user?: object,
+  canConfigure = true,
+  status: Record<string, unknown> = {},
+  role: number = ROLE.USER
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   client.setQueryData(['status'], {
     SidebarModulesAdmin: admin ? JSON.stringify(admin) : '',
+    ...status,
   })
   useAuthStore.getState().auth.setUser({
     id: 1,
     username: 'alice',
-    role: 1,
+    role,
     permissions: { sidebar_settings: canConfigure },
     sidebar_modules: user ? JSON.stringify(user) : '',
   })
@@ -93,6 +100,35 @@ function sidebarFor(admin?: object, user?: object, canConfigure = true) {
   )
   return result
 }
+
+describe('degradation monitor sidebar entry', () => {
+  it('places the entry immediately after Task Logs for administrators', () => {
+    const { result } = sidebarFor(undefined, undefined, true, {}, ROLE.ADMIN)
+    const items =
+      result.current.find((group) => group.id === 'general')?.items ?? []
+    const taskLogsIndex = items.findIndex((item) => item.title === 'Task Logs')
+
+    expect(items[taskLogsIndex + 1]).toMatchObject({
+      title: 'Degradation Monitor',
+      url: '/degradation-monitor',
+    })
+  })
+
+  it.each([true, false])(
+    'uses the public visibility flag for ordinary users: %s',
+    (visible) => {
+      const { result } = sidebarFor(undefined, undefined, true, {
+        degradation_monitor_user_visible: visible,
+      })
+
+      expect(
+        result.current
+          .flatMap((group) => group.items)
+          .some((item) => item.title === 'Degradation Monitor')
+      ).toBe(visible)
+    }
+  )
+})
 
 describe('security sidebar visibility', () => {
   it('old configurations show Security & Access immediately after Profile and keep API Keys', () => {

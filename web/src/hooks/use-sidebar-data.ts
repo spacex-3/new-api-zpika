@@ -20,6 +20,7 @@ import {
   Activity,
   Box,
   ClipboardList,
+  BrainCircuit,
   CreditCard,
   FileText,
   FlaskConical,
@@ -40,7 +41,10 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarBadges, SidebarData } from '@/components/layout/types'
+import { useStatus } from '@/hooks/use-status'
+import { canAccessDegradationMonitor } from '@/lib/degradation-monitor'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -50,6 +54,9 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
   const { t } = useTranslation()
+  const { status } = useStatus()
+  const userRole = useAuthStore((state) => state.auth.user?.role)
+  const showDegradationMonitor = canAccessDegradationMonitor(status, userRole)
 
   return {
     navGroups: [
@@ -105,6 +112,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
+          ...(showDegradationMonitor
+            ? [
+                {
+                  title: t('Degradation Monitor'),
+                  url: '/degradation-monitor' as const,
+                  icon: BrainCircuit,
+                },
+              ]
+            : []),
         ],
       },
       {

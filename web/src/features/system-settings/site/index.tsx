@@ -33,6 +33,8 @@ const defaultSiteSettings: SiteSettings = {
   HomePageContent: '',
   ServerAddress: '',
   TaskPublicAddress: '',
+  DegradationMonitorURL: '',
+  DegradationMonitorUserVisible: false,
   'general_setting.docs_link': '',
   'legal.user_agreement': '',
   'legal.privacy_policy': '',

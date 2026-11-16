@@ -1,0 +1,44 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import type { QueryClient } from '@tanstack/react-query'
+
+import { parseHeaderNavBoolean } from '@/lib/nav-modules'
+import { ROLE } from '@/lib/roles'
+import { statusQueryOptions } from '@/lib/status-query'
+
+export function canAccessDegradationMonitor(
+  status: Record<string, unknown> | null | undefined,
+  role: number | null | undefined
+): boolean {
+  if ((role ?? ROLE.GUEST) >= ROLE.ADMIN) return true
+  return parseHeaderNavBoolean(status?.degradation_monitor_user_visible, false)
+}
+
+export async function canAccessDegradationMonitorForGuard(
+  queryClient: QueryClient,
+  role: number | null | undefined
+): Promise<boolean> {
+  if ((role ?? ROLE.GUEST) >= ROLE.ADMIN) return true
+  try {
+    const status = await queryClient.fetchQuery(statusQueryOptions)
+    return canAccessDegradationMonitor(status, role)
+  } catch {
+    return false
+  }
+}
