@@ -57,44 +57,25 @@ func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 	}
 }
 
-func TestChannelErrorAlertTrackerThresholdWindowAndReset(t *testing.T) {
+func TestChannelErrorAlertTrackerUsesRollingFailureCount(t *testing.T) {
 	tracker := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
 	startedAt := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
-	for count := 1; count <= channelErrorAlertThreshold; count++ {
+	for count := range channelErrorAlertThreshold {
 		gotCount, notify := tracker.record(7, startedAt.Add(time.Duration(count)*time.Second))
-		assert.Equal(t, count, gotCount)
+		assert.Equal(t, count+1, gotCount)
 		assert.False(t, notify)
 	}
-	gotCount, notify := tracker.record(7, startedAt.Add(11*time.Second))
-	assert.Equal(t, 11, gotCount)
+	gotCount, notify := tracker.record(7, startedAt.Add(10*time.Second))
+	assert.Equal(t, channelErrorAlertThreshold+1, gotCount)
 	assert.True(t, notify)
-	_, notify = tracker.record(7, startedAt.Add(12*time.Second))
-	assert.False(t, notify, "the same one-minute window must only notify once")
-
-	gotCount, notify = tracker.record(8, startedAt.Add(12*time.Second))
-	assert.Equal(t, 1, gotCount)
+	_, notify = tracker.record(7, startedAt.Add(11*time.Second))
+	assert.False(t, notify, "the same active window must only notify once")
+	_, notify = tracker.record(8, startedAt.Add(11*time.Second))
 	assert.False(t, notify, "channels must have independent counters")
 
-	tracker.reset(7)
-	gotCount, notify = tracker.record(7, startedAt.Add(13*time.Second))
-	assert.Equal(t, 1, gotCount)
-	assert.False(t, notify)
-
-	gotCount, notify = tracker.record(7, startedAt.Add(channelErrorAlertWindow+14*time.Second))
-	assert.Equal(t, 1, gotCount)
-	assert.False(t, notify, "an expired window must start from one")
-
-	rolling := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
-	for count := range channelErrorAlertThreshold {
-		_, notify = rolling.record(9, startedAt.Add(time.Duration(count*6)*time.Second))
-		assert.False(t, notify)
-	}
-	gotCount, notify = rolling.record(9, startedAt.Add(60*time.Second))
-	assert.Equal(t, channelErrorAlertThreshold, gotCount)
-	assert.False(t, notify)
-	gotCount, notify = rolling.record(9, startedAt.Add(61*time.Second))
+	gotCount, notify = tracker.record(7, startedAt.Add(61*time.Second))
 	assert.Equal(t, channelErrorAlertThreshold+1, gotCount)
-	assert.True(t, notify, "errors spanning the original window boundary must still alert")
+	assert.True(t, notify, "the alert must re-arm after old failures leave the rolling window")
 }
 
 func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
@@ -154,9 +135,13 @@ func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	apiErr := types.WithOpenAIError(types.OpenAIError{Message: "invalid credential", Type: "invalid_request_error", Code: "invalid_api_key"}, http.StatusUnauthorized)
 	channelError := types.ChannelError{ChannelId: channelID, ChannelName: "edge-singapore"}
-	for range channelErrorAlertThreshold {
+	for range channelErrorAlertThreshold - 1 {
 		ProcessChannelError(c, channelError, apiErr, nil)
 	}
+	successContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	successContext.Set("channel_id", channelID)
+	MarkRequestPolicySuccess(successContext, nil)
+	ProcessChannelError(c, channelError, apiErr, nil)
 	select {
 	case <-notifications:
 		t.Fatal("notification was sent before the threshold was exceeded")
@@ -167,10 +152,10 @@ func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
 	select {
 	case notification := <-notifications:
 		assert.Equal(t, fmt.Sprintf("channel_error_%d", channelID), notification.Type)
-		assert.Equal(t, "Repeated channel errors", notification.Title)
+		assert.Equal(t, "Frequent channel errors", notification.Title)
 		assert.Contains(t, notification.Content, `Channel "edge-singapore" (#77)`)
-		assert.Contains(t, notification.Content, "11 consecutive times")
-		assert.Contains(t, notification.Content, "Error code: invalid_api_key")
+		assert.Contains(t, notification.Content, "failed 11 times within the last minute")
+		assert.Contains(t, notification.Content, "Latest error code: invalid_api_key")
 		assert.Contains(t, notification.Content, "HTTP status: 401")
 	case <-time.After(5 * time.Second):
 		t.Fatal("channel error burst notification was not delivered")

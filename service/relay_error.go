@@ -45,7 +45,7 @@ func (t *channelErrorAlertTracker) record(channelID int, now time.Time) (int, bo
 		firstActive++
 	}
 	window.failures = window.failures[firstActive:]
-	if len(window.failures) == 0 {
+	if len(window.failures) <= channelErrorAlertThreshold {
 		window.notified = false
 	}
 	window.failures = append(window.failures, now)
