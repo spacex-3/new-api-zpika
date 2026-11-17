@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -158,7 +159,26 @@ func TestCangyuanMiniMaxH3ResolutionValidation(t *testing.T) {
 	require.NoError(t, err)
 	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "cangyuan"})
 	require.NoError(t, err)
-	assert.Equal(t, "1.1.0", plugin.Meta.Version)
+	assert.Equal(t, "1.1.1", plugin.Meta.Version)
+	assert.Contains(t, plugin.Meta.Models, "MiniMax-H3")
+	usageSchema, _ := plugin.Meta.UsageForModel("MiniMax-H3")
+	assert.Equal(t, []string{"768P", "2K"}, usageSchema["resolution"].Enum)
+	require.NoError(t, billing_setting.SmokeTestTaskExpr(
+		`u("resolution") == "2K" ? tier("2K", 30) : tier("768P", 20)`,
+		usageSchema,
+	))
+
+	hailuoSource, err := builtinplugins.Source("hailuo")
+	require.NoError(t, err)
+	sharedRegistry := jsplugin.NewRegistry()
+	_, err = sharedRegistry.RegisterFactory(hailuoSource, jsplugin.Options{Key: "hailuo"})
+	require.NoError(t, err)
+	_, err = sharedRegistry.RegisterFactory(source, jsplugin.Options{Key: "cangyuan"})
+	require.NoError(t, err)
+	providers := sharedRegistry.Generation().PluginsByModel("MiniMax-H3")
+	require.Len(t, providers, 2)
+	assert.Equal(t, "cangyuan", providers[0].Meta.Key)
+	assert.Equal(t, "hailuo", providers[1].Meta.Key)
 
 	decode := func(model, upstreamModel string, body map[string]any) (map[string]any, error) {
 		value, callErr := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{

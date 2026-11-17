@@ -29,11 +29,17 @@ const VIDEO_MODELS = [
   "sd13-seedance-2.0", "sd13-seedance-2.0-fast", "sd13-seedance-2.0-mini", "sd13-seedance-2.5", "sd18-seedance-2.5", "sd14-seedance-2.0",
   "sd15-seedance-2.5", "sd15-seedance-2.5-2", "sd15-seedance-2.0", "sd15-seedance-2.0-2",
   "sd16-seedance-2.0", "sd16-seedance-2.0-fast", "sd16-seedance-2.0-mini", "sd16-seedance-2.0-x1", "sd16-seedance-2.5-2", "sd16-seedance-2.5-3", "sd16-seedance-2.5-4",
-  "gv3-grok-video-1.5", "mm3-minimax-h3-2k", "sd17-seedance-2.0-3", "sd17-seedance-2.5-3", "gv4-grok-imagine-video-1.5", "gv5-grok-imagine-1.5", "mm4-minimax-h3", "mm5-minimax-h3",
+  "gv3-grok-video-1.5", "mm3-minimax-h3-2k", "sd17-seedance-2.0-3", "sd17-seedance-2.5-3", "gv4-grok-imagine-video-1.5", "gv5-grok-imagine-1.5", "MiniMax-H3", "mm4-minimax-h3", "mm5-minimax-h3",
   "sd17-seedance-2.0", "sd17-seedance-2.0-2", "sd17-seedance-2.5", "sd19-seedance-2.5", "sd17-seedance-2.5-2", "sd17-seedance-2.0-4", "sd17-seedance-2.5-4",
   "mu1-muse-video", "mu1-muse-video-20s", "mu1-muse-video-30s", "mu1-muse-video-40s", "mu1-muse-video-50s", "mu1-muse-video-60s", "mu1-muse-director", "mu1-muse-podcast",
 ];
-const MINIMAX_H3_MODELS = ["mm4-minimax-h3", "mm5-minimax-h3"];
+const MINIMAX_H3_MODELS = ["MiniMax-H3", "mm4-minimax-h3", "mm5-minimax-h3"];
+const MINIMAX_H3_USAGE_SCHEMA = {
+  resolution: {
+    enum: ["768P", "2K"],
+    description: { en: "Output video resolution", zh: "输出视频分辨率" },
+  },
+};
 
 const MUSIC_MODELS = [
   "lyria-3.5", "lyria-3-pro", "suno", "su2-suno-v6", "su2-suno-v6-mini", "su2-suno-v6-wild", "suno-v6",
@@ -58,7 +64,7 @@ export const meta = {
     en: "Asynchronous image, video, music, and 3D tasks through a Cangyuan New API upstream",
     zh: "通过沧元 New API 上游调用异步图片、视频、音乐和 3D 任务",
   },
-  version: "1.1.0",
+  version: "1.1.1",
   author: { name: "QuantumNous" },
   models: IMAGE_MODELS.concat(VIDEO_MODELS, MUSIC_MODELS, THREED_MODELS),
   fetchMode: "per_task",
@@ -77,6 +83,9 @@ export const meta = {
   },
   usageExamples: [
     { label: "default media task", facts: { n: 1, img_n: 1, tin: 0, iin: 0, iout: 0, as: 0, vs: 5, tokens: 0, ref: 0, vref: 0 } },
+  ],
+  usageProfiles: [
+    { models: MINIMAX_H3_MODELS, schema: MINIMAX_H3_USAGE_SCHEMA },
   ],
   routes: [
     { method: "GET", path: "/v1/images/generations/:task_id", type: "query", render: "imageTask" },
