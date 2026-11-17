@@ -23,10 +23,18 @@ type Feedback struct {
 	Email                 string    `json:"email"`
 	Content               string    `json:"content"`
 	Status                string    `json:"status"`
+	Replies               []Reply   `json:"replies"`
 	NotificationDelivered bool      `json:"notification_delivered"`
 	NotificationError     string    `json:"notification_error,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+type Reply struct {
+	ID        string    `json:"id"`
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type persistedState struct {
@@ -81,6 +89,11 @@ func (s *Store) load() error {
 	}
 	if state.Feedbacks == nil {
 		state.Feedbacks = []Feedback{}
+	}
+	for i := range state.Feedbacks {
+		if state.Feedbacks[i].Replies == nil {
+			state.Feedbacks[i].Replies = []Reply{}
+		}
 	}
 	s.state = state
 	return nil
@@ -150,21 +163,21 @@ func decryptState(key, ciphertext []byte) ([]byte, error) {
 	return gcm.Open(nil, ciphertext[:gcm.NonceSize()], ciphertext[gcm.NonceSize():], nil)
 }
 
-func feedbackID() (string, error) {
+func randomID(prefix string) (string, error) {
 	raw := make([]byte, 12)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
-	return "fb_" + hex.EncodeToString(raw), nil
+	return prefix + hex.EncodeToString(raw), nil
 }
 
 func (s *Store) Create(email, content string) (Feedback, error) {
-	id, err := feedbackID()
+	id, err := randomID("fb_")
 	if err != nil {
 		return Feedback{}, err
 	}
 	now := time.Now().UTC()
-	feedback := Feedback{ID: id, Email: email, Content: content, Status: "new", CreatedAt: now, UpdatedAt: now}
+	feedback := Feedback{ID: id, Email: email, Content: content, Status: "new", Replies: []Reply{}, CreatedAt: now, UpdatedAt: now}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Feedbacks = append(s.state.Feedbacks, feedback)
@@ -175,12 +188,61 @@ func (s *Store) Create(email, content string) (Feedback, error) {
 	return feedback, nil
 }
 
+func cloneFeedback(feedback Feedback) Feedback {
+	feedback.Replies = slices.Clone(feedback.Replies)
+	return feedback
+}
+
 func (s *Store) List() []Feedback {
 	s.mu.RLock()
-	feedbacks := slices.Clone(s.state.Feedbacks)
+	feedbacks := make([]Feedback, len(s.state.Feedbacks))
+	for i := range s.state.Feedbacks {
+		feedbacks[i] = cloneFeedback(s.state.Feedbacks[i])
+	}
 	s.mu.RUnlock()
 	slices.SortFunc(feedbacks, func(a, b Feedback) int { return b.CreatedAt.Compare(a.CreatedAt) })
 	return feedbacks
+}
+
+func (s *Store) ListByEmail(email string) []Feedback {
+	s.mu.RLock()
+	feedbacks := make([]Feedback, 0)
+	for _, feedback := range s.state.Feedbacks {
+		if feedback.Email == email {
+			feedbacks = append(feedbacks, cloneFeedback(feedback))
+		}
+	}
+	s.mu.RUnlock()
+	slices.SortFunc(feedbacks, func(a, b Feedback) int { return b.CreatedAt.Compare(a.CreatedAt) })
+	return feedbacks
+}
+
+func (s *Store) AddReply(id, author, email, content string) (Feedback, error) {
+	if author != "admin" && author != "client" {
+		return Feedback{}, errors.New("invalid reply author")
+	}
+	replyID, err := randomID("reply_")
+	if err != nil {
+		return Feedback{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.state.Feedbacks {
+		feedback := &s.state.Feedbacks[i]
+		if feedback.ID != id || (author == "client" && feedback.Email != email) {
+			continue
+		}
+		previous := cloneFeedback(*feedback)
+		now := time.Now().UTC()
+		feedback.Replies = append(feedback.Replies, Reply{ID: replyID, Author: author, Content: content, CreatedAt: now})
+		feedback.UpdatedAt = now
+		if err := s.saveLocked(); err != nil {
+			s.state.Feedbacks[i] = previous
+			return Feedback{}, err
+		}
+		return cloneFeedback(*feedback), nil
+	}
+	return Feedback{}, os.ErrNotExist
 }
 
 func (s *Store) UpdateStatus(id, status string) (Feedback, error) {
@@ -197,7 +259,7 @@ func (s *Store) UpdateStatus(id, status string) (Feedback, error) {
 			s.state.Feedbacks[i] = previous
 			return Feedback{}, err
 		}
-		return s.state.Feedbacks[i], nil
+		return cloneFeedback(s.state.Feedbacks[i]), nil
 	}
 	return Feedback{}, os.ErrNotExist
 }

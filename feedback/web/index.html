@@ -55,6 +55,27 @@
           <button id="submit-another" type="button" class="secondary-button">继续提交</button>
         </div>
       </section>
+
+      <section class="history-section" aria-labelledby="history-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="history-title">我的留言</h2>
+            <p>输入提交留言时使用的邮箱，查看回复并继续沟通。</p>
+          </div>
+        </div>
+        <form id="lookup-form" class="lookup-form" novalidate>
+          <div class="field lookup-field">
+            <label for="lookup-email">联系邮箱</label>
+            <div class="lookup-row">
+              <input id="lookup-email" type="email" maxlength="254" autocomplete="email" required placeholder="name@example.com" />
+              <button id="lookup-button" type="submit">查询留言</button>
+            </div>
+            <p id="lookup-error" class="field-error"></p>
+          </div>
+        </form>
+        <div id="history-summary" class="history-summary" hidden></div>
+        <div id="history-list" class="history-list"></div>
+      </section>
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>

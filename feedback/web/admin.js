@@ -48,6 +48,20 @@ function formatTime(value) {
 
 const statusNames = { new: '待处理', processing: '处理中', resolved: '已解决' }
 
+function renderReplies(replies = []) {
+  if (!replies.length) return '<p class="no-replies">暂无对话回复</p>'
+  return `<div class="reply-list admin-reply-list">${replies.map((reply) => `
+    <div class="reply reply-${escapeHTML(reply.author)}">
+      <div class="reply-meta"><strong>${reply.author === 'admin' ? '管理员回复' : '客户回复'}</strong><time>${formatTime(reply.created_at)}</time></div>
+      <p>${escapeHTML(reply.content)}</p>
+    </div>`).join('')}</div>`
+}
+
+function replaceFeedback(feedback) {
+  const index = feedbacks.findIndex((item) => item.id === feedback.id)
+  if (index >= 0) feedbacks[index] = feedback
+}
+
 function renderFeedbacks() {
   const filter = statusFilter.value
   const visible = filter === 'all' ? feedbacks : feedbacks.filter((item) => item.status === filter)
@@ -64,34 +78,21 @@ function renderFeedbacks() {
         <time>${formatTime(item.created_at)}</time>
       </div>
       <p class="feedback-content">${escapeHTML(item.content)}</p>
+      ${renderReplies(item.replies)}
+      <form class="reply-form admin-reply-form" data-admin-reply="${escapeHTML(item.id)}">
+        <label for="admin-reply-${escapeHTML(item.id)}">回复客户</label>
+        <textarea id="admin-reply-${escapeHTML(item.id)}" maxlength="4000" required placeholder="输入回复内容，客户可在留言查询页看到"></textarea>
+        <div class="reply-form-footer"><span>最多 4000 个字</span><button type="submit">发送回复</button></div>
+      </form>
       <div class="feedback-actions">
         <span class="notification-state ${item.notification_delivered ? 'delivered' : 'failed'}">
           ${item.notification_delivered ? 'Bark 已送达' : `Bark 未送达${item.notification_error ? `：${escapeHTML(item.notification_error)}` : ''}`}
         </span>
-        <select data-feedback-id="${escapeHTML(item.id)}" aria-label="更新反馈状态">
+        <select data-feedback-status="${escapeHTML(item.id)}" aria-label="更新反馈状态">
           ${Object.entries(statusNames).map(([value, label]) => `<option value="${value}"${item.status === value ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
       </div>
     </article>`).join('')
-  document.querySelectorAll('[data-feedback-id]').forEach((select) => {
-    select.addEventListener('change', async () => {
-      select.disabled = true
-      try {
-        const data = await api(`/api/admin/feedbacks/${encodeURIComponent(select.dataset.feedbackId)}`, {
-          method: 'PUT', body: JSON.stringify({ status: select.value }),
-        })
-        const index = feedbacks.findIndex((item) => item.id === data.feedback.id)
-        if (index >= 0) feedbacks[index] = data.feedback
-        renderFeedbacks()
-        showToast('状态已更新')
-      } catch (error) {
-        showToast(error.message)
-        await loadFeedbacks()
-      } finally {
-        select.disabled = false
-      }
-    })
-  })
 }
 
 async function loadFeedbacks() {
@@ -147,6 +148,53 @@ document.querySelectorAll('[data-tab]').forEach((button) => {
     document.querySelector('#feedbacks-tab').hidden = button.dataset.tab !== 'feedbacks'
     document.querySelector('#settings-tab').hidden = button.dataset.tab !== 'settings'
   })
+})
+
+feedbackList.addEventListener('change', async (event) => {
+  const select = event.target.closest('[data-feedback-status]')
+  if (!select) return
+  select.disabled = true
+  try {
+    const data = await api(`/api/admin/feedbacks/${encodeURIComponent(select.dataset.feedbackStatus)}`, {
+      method: 'PUT', body: JSON.stringify({ status: select.value }),
+    })
+    replaceFeedback(data.feedback)
+    renderFeedbacks()
+    showToast('状态已更新')
+  } catch (error) {
+    showToast(error.message)
+    await loadFeedbacks()
+  } finally {
+    select.disabled = false
+  }
+})
+
+feedbackList.addEventListener('submit', async (event) => {
+  const replyForm = event.target.closest('[data-admin-reply]')
+  if (!replyForm) return
+  event.preventDefault()
+  const textarea = replyForm.querySelector('textarea')
+  const button = replyForm.querySelector('button')
+  const content = textarea.value.trim()
+  if (!content) {
+    showToast('请输入回复内容')
+    textarea.focus()
+    return
+  }
+  button.disabled = true
+  button.textContent = '发送中...'
+  try {
+    const data = await api(`/api/admin/feedbacks/${encodeURIComponent(replyForm.dataset.adminReply)}/replies`, {
+      method: 'POST', body: JSON.stringify({ content }),
+    })
+    replaceFeedback(data.feedback)
+    renderFeedbacks()
+    showToast('回复已保存')
+  } catch (error) {
+    showToast(error.message)
+    button.disabled = false
+    button.textContent = '发送回复'
+  }
 })
 
 statusFilter.addEventListener('change', renderFeedbacks)

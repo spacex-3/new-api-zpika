@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -78,17 +80,54 @@ func buildBarkURL(endpoint, title, content string) (string, error) {
 		result := strings.ReplaceAll(endpoint, "{{title}}", url.QueryEscape(title))
 		return strings.ReplaceAll(result, "{{content}}", url.QueryEscape(content)), nil
 	}
+	return "", errors.New("Bark URL 模板缺少 {{title}} 或 {{content}}")
+}
+
+func buildBarkRequest(endpoint, title, content string) (*http.Request, error) {
+	if err := validateBarkURL(endpoint); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(endpoint) == "" {
+		return nil, errors.New("尚未配置 Bark URL")
+	}
+	if strings.Contains(endpoint, "{{title}}") || strings.Contains(endpoint, "{{content}}") {
+		finalURL, err := buildBarkURL(endpoint, title, content)
+		if err != nil {
+			return nil, err
+		}
+		return http.NewRequest(http.MethodGet, finalURL, nil)
+	}
 	parsed, _ := url.Parse(endpoint)
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + url.PathEscape(title) + "/" + url.PathEscape(content)
-	return parsed.String(), nil
+	path := strings.Trim(parsed.Path, "/")
+	if path == "" {
+		return nil, errors.New("Bark URL 缺少设备密钥")
+	}
+	segments := strings.Split(path, "/")
+	deviceKey, err := url.PathUnescape(segments[len(segments)-1])
+	if err != nil || strings.TrimSpace(deviceKey) == "" {
+		return nil, errors.New("Bark URL 的设备密钥无效")
+	}
+	segments[len(segments)-1] = "push"
+	parsed.Path = "/" + strings.Join(segments, "/")
+	parsed.RawPath = ""
+	payload, err := json.Marshal(map[string]string{
+		"device_key": deviceKey,
+		"title":      title,
+		"body":       content,
+	})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequest(http.MethodPost, parsed.String(), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json; charset=utf-8")
+	return request, nil
 }
 
 func sendBark(client *http.Client, endpoint, title, content string) error {
-	finalURL, err := buildBarkURL(endpoint, title, content)
-	if err != nil {
-		return err
-	}
-	request, err := http.NewRequest(http.MethodGet, finalURL, nil)
+	request, err := buildBarkRequest(endpoint, title, content)
 	if err != nil {
 		return err
 	}

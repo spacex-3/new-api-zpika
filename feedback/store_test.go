@@ -6,6 +6,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStorePersistsEncryptedFeedbackAndStatus(t *testing.T) {
@@ -29,6 +34,9 @@ func TestStorePersistsEncryptedFeedbackAndStatus(t *testing.T) {
 	if _, err := store.UpdateStatus(feedback.ID, "resolved"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.AddReply(feedback.ID, "admin", "", "这是管理员的中文回复"); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.SetBarkURL("https://api.day.app/device"); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +44,7 @@ func TestStorePersistsEncryptedFeedbackAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(raw, []byte("person@example.com")) || bytes.Contains(raw, []byte("api.day.app")) {
+	if bytes.Contains(raw, []byte("person@example.com")) || bytes.Contains(raw, []byte("api.day.app")) || bytes.Contains(raw, []byte("管理员的中文回复")) {
 		t.Fatal("encrypted state leaked plaintext")
 	}
 	reloaded, err := NewStore(filepath.Dir(store.statePath), key)
@@ -44,20 +52,64 @@ func TestStorePersistsEncryptedFeedbackAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := reloaded.List()
-	if len(items) != 1 || items[0].Status != "resolved" || reloaded.BarkURL() == "" {
+	if len(items) != 1 || items[0].Status != "resolved" || len(items[0].Replies) != 1 || reloaded.BarkURL() == "" {
 		t.Fatalf("unexpected reloaded state: %#v", items)
 	}
 }
 
-func TestBuildBarkURLSupportsEndpointAndTemplate(t *testing.T) {
-	plain, err := buildBarkURL("https://api.day.app/device", "新反馈", "邮箱：a@example.com")
-	if err != nil || plain == "https://api.day.app/device" {
-		t.Fatalf("plain endpoint was not expanded: %q %v", plain, err)
-	}
-	template, err := buildBarkURL("https://bark.example/key/{{title}}/{{content}}?group=feedback", "标题", "内容")
-	if err != nil || template == "" {
-		t.Fatalf("template endpoint failed: %q %v", template, err)
-	}
+func TestBuildBarkRequestUsesUTF8JSONForStandardEndpoint(t *testing.T) {
+	request, err := buildBarkRequest("https://api.day.app/device-key", "新留言反馈", "邮箱：a@example.com\n\n反馈内容：\n中文内容")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, request.Method)
+	assert.Equal(t, "https://api.day.app/push", request.URL.String())
+	assert.Equal(t, "application/json; charset=utf-8", request.Header.Get("Content-Type"))
+	body, err := io.ReadAll(request.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "新留言反馈")
+	assert.NotContains(t, string(body), "%E6%96%B0")
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.Equal(t, "device-key", payload["device_key"])
+	assert.Equal(t, "邮箱：a@example.com\n\n反馈内容：\n中文内容", payload["body"])
+
+	template, err := buildBarkRequest("https://bark.example/key/{{title}}/{{content}}?group=feedback", "标题", "内容")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodGet, template.Method)
+	assert.Contains(t, template.URL.String(), "group=feedback")
+}
+
+func TestStoreEmailLookupAndReplyOwnership(t *testing.T) {
+	store, err := NewStore(t.TempDir(), bytes.Repeat([]byte{9}, 32))
+	require.NoError(t, err)
+	first, err := store.Create("person@example.com", "第一条足够详细的反馈内容")
+	require.NoError(t, err)
+	_, err = store.Create("other@example.com", "另一条足够详细的反馈内容")
+	require.NoError(t, err)
+
+	items := store.ListByEmail("person@example.com")
+	require.Len(t, items, 1)
+	assert.Equal(t, first.ID, items[0].ID)
+	_, err = store.AddReply(first.ID, "client", "wrong@example.com", "错误邮箱的回复")
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	updated, err := store.AddReply(first.ID, "client", "person@example.com", "客户补充内容")
+	require.NoError(t, err)
+	require.Len(t, updated.Replies, 1)
+	assert.Equal(t, "client", updated.Replies[0].Author)
+}
+
+func TestStoreLoadsVersionOneStateWithoutReplies(t *testing.T) {
+	dataDir := t.TempDir()
+	key := bytes.Repeat([]byte{3}, 32)
+	plaintext := []byte(`{"version":1,"feedbacks":[{"id":"fb_old","email":"old@example.com","content":"旧版反馈内容","status":"new","notification_delivered":false,"created_at":"2026-11-17T00:00:00Z","updated_at":"2026-11-17T00:00:00Z"}]}`)
+	ciphertext, err := encryptState(key, plaintext)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "feedback-state.enc"), ciphertext, 0o600))
+
+	store, err := NewStore(dataDir, key)
+	require.NoError(t, err)
+	items := store.List()
+	require.Len(t, items, 1)
+	assert.Empty(t, items[0].Replies)
 }
 
 func TestAdminSessionRejectsMissingCSRF(t *testing.T) {

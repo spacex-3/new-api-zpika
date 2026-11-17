@@ -187,14 +187,14 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, value any) bool {
 	return true
 }
 
-func (l *submissionLimiter) allow(key string, now time.Time) bool {
+func (l *submissionLimiter) allow(key string, limit int, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	window := l.windows[key]
 	if window.StartedAt.IsZero() || now.Sub(window.StartedAt) >= 10*time.Minute {
 		window = submissionWindow{StartedAt: now}
 	}
-	if window.Count >= 5 {
+	if window.Count >= limit {
 		return false
 	}
 	window.Count++
@@ -232,11 +232,14 @@ func (a *App) routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("POST /api/feedback", a.createFeedback)
+	mux.HandleFunc("POST /api/feedbacks/lookup", a.lookupFeedbacks)
+	mux.HandleFunc("POST /api/feedbacks/{id}/replies", a.createClientReply)
 	mux.HandleFunc("POST /api/admin/login", a.login)
 	mux.HandleFunc("POST /api/admin/logout", a.auth.requireSession(a.logout))
 	mux.HandleFunc("GET /api/admin/session", a.auth.requireSession(a.session))
 	mux.HandleFunc("GET /api/admin/feedbacks", a.auth.requireSession(a.listFeedbacks))
 	mux.HandleFunc("PUT /api/admin/feedbacks/{id}", a.auth.requireSession(a.updateFeedback))
+	mux.HandleFunc("POST /api/admin/feedbacks/{id}/replies", a.auth.requireSession(a.createAdminReply))
 	mux.HandleFunc("GET /api/admin/settings", a.auth.requireSession(a.adminSettings))
 	mux.HandleFunc("PUT /api/admin/settings", a.auth.requireSession(a.updateSettings))
 	mux.HandleFunc("POST /api/admin/notifications/test", a.auth.requireSession(a.testNotification))
@@ -297,12 +300,43 @@ func normalizeContent(value string) (string, error) {
 	return value, nil
 }
 
+func normalizeReplyContent(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("请输入回复内容")
+	}
+	if len([]rune(value)) > 4000 {
+		return "", errors.New("回复内容不能超过 4000 个字")
+	}
+	return value, nil
+}
+
+type publicFeedback struct {
+	ID        string    `json:"id"`
+	Content   string    `json:"content"`
+	Status    string    `json:"status"`
+	Replies   []Reply   `json:"replies"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func publicFeedbacks(feedbacks []Feedback) []publicFeedback {
+	result := make([]publicFeedback, len(feedbacks))
+	for i, feedback := range feedbacks {
+		result[i] = publicFeedback{
+			ID: feedback.ID, Content: feedback.Content, Status: feedback.Status,
+			Replies: feedback.Replies, CreatedAt: feedback.CreatedAt, UpdatedAt: feedback.UpdatedAt,
+		}
+	}
+	return result
+}
+
 func (a *App) createFeedback(w http.ResponseWriter, r *http.Request) {
 	if !a.auth.checkOrigin(r) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "请求来源无效"})
 		return
 	}
-	if !a.limiter.allow(a.auth.clientIP(r), time.Now()) {
+	if !a.limiter.allow("create:"+a.auth.clientIP(r), 5, time.Now()) {
 		w.Header().Set("Retry-After", "600")
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "提交过于频繁，请稍后再试"})
 		return
@@ -343,6 +377,78 @@ func (a *App) createFeedback(w http.ResponseWriter, r *http.Request) {
 		_ = a.store.MarkNotification(feedback.ID, true, "")
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "id": feedback.ID})
+}
+
+func (a *App) lookupFeedbacks(w http.ResponseWriter, r *http.Request) {
+	if !a.auth.checkOrigin(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "请求来源无效"})
+		return
+	}
+	if !a.limiter.allow("lookup:"+a.auth.clientIP(r), 20, time.Now()) {
+		w.Header().Set("Retry-After", "600")
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "查询过于频繁，请稍后再试"})
+		return
+	}
+	var request struct {
+		Email string `json:"email"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	email, err := normalizeEmail(request.Email)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	feedbacks := publicFeedbacks(a.store.ListByEmail(email))
+	writeJSON(w, http.StatusOK, map[string]any{"feedbacks": feedbacks, "total": len(feedbacks)})
+}
+
+func (a *App) createClientReply(w http.ResponseWriter, r *http.Request) {
+	if !a.auth.checkOrigin(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "请求来源无效"})
+		return
+	}
+	if !a.limiter.allow("reply:"+a.auth.clientIP(r), 10, time.Now()) {
+		w.Header().Set("Retry-After", "600")
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "回复过于频繁，请稍后再试"})
+		return
+	}
+	var request struct {
+		Email   string `json:"email"`
+		Content string `json:"content"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	email, err := normalizeEmail(request.Email)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	content, err := normalizeReplyContent(request.Content)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	feedback, err := a.store.AddReply(r.PathValue("id"), "client", email, content)
+	if errors.Is(err, os.ErrNotExist) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "留言不存在或邮箱不匹配"})
+		return
+	}
+	if err != nil {
+		slog.Error("save client reply", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "暂时无法保存回复，请稍后再试"})
+		return
+	}
+	notification := "邮箱：" + email + "\n\n回复内容：\n" + content
+	if err := sendBark(a.client, a.store.BarkURL(), "留言有新回复", notification); err != nil {
+		slog.Warn("reply notification failed", "feedback_id", feedback.ID, "error", err)
+		_ = a.store.MarkNotification(feedback.ID, false, err.Error())
+	} else {
+		_ = a.store.MarkNotification(feedback.ID, true, "")
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"feedback": publicFeedbacks([]Feedback{feedback})[0]})
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
@@ -411,6 +517,31 @@ func (a *App) updateFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"feedback": feedback})
+}
+
+func (a *App) createAdminReply(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Content string `json:"content"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	content, err := normalizeReplyContent(request.Content)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	feedback, err := a.store.AddReply(r.PathValue("id"), "admin", "", content)
+	if errors.Is(err, os.ErrNotExist) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "反馈不存在"})
+		return
+	}
+	if err != nil {
+		slog.Error("save admin reply", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "保存回复失败"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"feedback": feedback})
 }
 
 func (a *App) adminSettings(w http.ResponseWriter, _ *http.Request) {

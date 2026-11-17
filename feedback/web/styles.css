@@ -88,6 +88,13 @@ button:hover:not(:disabled) { background: var(--accent-hover); border-color: var
 .success-mark { width: 48px; height: 48px; margin: 0 auto 18px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); font-size: 24px; font-weight: 750; }
 .success-state h2 { margin: 0; font-size: 22px; }
 .success-state p { margin: 10px 0 24px; color: var(--muted); }
+.history-section { margin-top: 34px; }
+.history-section .section-heading { margin-bottom: 18px; }
+.lookup-form .field { margin-bottom: 0; }
+.lookup-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.lookup-row button { white-space: nowrap; }
+.history-summary { margin: 22px 0 10px; color: var(--muted); font-size: 13px; }
+.history-list { display: grid; gap: 10px; }
 .toast { position: fixed; left: 50%; bottom: 28px; z-index: 20; max-width: min(440px, calc(100% - 32px)); transform: translate(-50%, 12px); opacity: 0; pointer-events: none; border-radius: 6px; padding: 11px 16px; background: var(--text); color: var(--surface); box-shadow: var(--shadow); transition: 180ms; }
 .toast.visible { transform: translate(-50%, 0); opacity: 1; }
 .login-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
@@ -112,6 +119,22 @@ button:hover:not(:disabled) { background: var(--accent-hover); border-color: var
 .status-processing { color: var(--accent); }
 .status-resolved { color: var(--success); }
 .feedback-content { margin: 16px 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.reply-list { display: grid; gap: 8px; margin: 14px 0; }
+.reply { border-left: 3px solid var(--border); padding: 10px 12px; background: var(--surface-muted); }
+.reply-admin { border-left-color: var(--accent); }
+.reply-client { border-left-color: var(--success); }
+.reply-meta, .reply-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reply-meta { color: var(--muted); font-size: 12px; }
+.reply-meta strong { color: var(--text); }
+.reply p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.no-replies { margin: 12px 0; color: var(--muted); font-size: 13px; }
+.reply-form { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.reply-form label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 650; }
+.reply-form textarea { min-height: 92px; }
+.reply-form-footer { margin-top: 8px; }
+.reply-form-footer span { color: var(--muted); font-size: 12px; }
+.reply-form-footer button { min-height: 36px; padding: 6px 14px; }
+.admin-reply-form { margin-bottom: 16px; }
 .feedback-actions { border-top: 1px solid var(--border); padding-top: 12px; }
 .feedback-actions select { width: 126px; min-height: 36px; }
 .notification-state { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
@@ -126,8 +149,9 @@ code { border-radius: 4px; padding: 2px 5px; background: var(--surface-muted); c
 @media (max-width: 640px) {
   .public-shell { width: min(100% - 24px, 720px); padding: 28px 0 40px; }
   .feedback-panel, .login-panel, .settings-panel { padding: 20px; }
-  .form-footer, .toolbar, .feedback-actions { align-items: stretch; flex-direction: column; }
-  .form-footer button, .toolbar select, .feedback-actions select { width: 100%; }
+  .form-footer, .toolbar, .feedback-actions, .reply-form-footer { align-items: stretch; flex-direction: column; }
+  .form-footer button, .toolbar select, .feedback-actions select, .reply-form-footer button { width: 100%; }
+  .lookup-row { grid-template-columns: 1fr; }
   .admin-shell { width: min(100% - 24px, 1120px); padding-top: 18px; }
   .feedback-meta { flex-direction: column; gap: 8px; }
   .feedback-meta > div { align-items: flex-start; flex-direction: column; gap: 6px; }
