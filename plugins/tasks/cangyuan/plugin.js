@@ -33,6 +33,7 @@ const VIDEO_MODELS = [
   "sd17-seedance-2.0", "sd17-seedance-2.0-2", "sd17-seedance-2.5", "sd19-seedance-2.5", "sd17-seedance-2.5-2", "sd17-seedance-2.0-4", "sd17-seedance-2.5-4",
   "mu1-muse-video", "mu1-muse-video-20s", "mu1-muse-video-30s", "mu1-muse-video-40s", "mu1-muse-video-50s", "mu1-muse-video-60s", "mu1-muse-director", "mu1-muse-podcast",
 ];
+const MINIMAX_H3_MODELS = ["mm4-minimax-h3", "mm5-minimax-h3"];
 
 const MUSIC_MODELS = [
   "lyria-3.5", "lyria-3-pro", "suno", "su2-suno-v6", "su2-suno-v6-mini", "su2-suno-v6-wild", "suno-v6",
@@ -57,7 +58,7 @@ export const meta = {
     en: "Asynchronous image, video, music, and 3D tasks through a Cangyuan New API upstream",
     zh: "通过沧元 New API 上游调用异步图片、视频、音乐和 3D 任务",
   },
-  version: "1.0.0",
+  version: "1.1.0",
   author: { name: "QuantumNous" },
   models: IMAGE_MODELS.concat(VIDEO_MODELS, MUSIC_MODELS, THREED_MODELS),
   fetchMode: "per_task",
@@ -348,8 +349,14 @@ export const protocols = {
       requireHTTPSMedia(body);
       const model = trimmed(ctx.model);
       if (!model) throw new Error("model is required");
+      const requestBody = Object.assign({}, body, { model: model });
+      if (MINIMAX_H3_MODELS.includes(trimmed(ctx.upstreamModel || model)) && Object.prototype.hasOwnProperty.call(body, "resolution")) {
+        const resolution = trimmed(body.resolution).toUpperCase();
+        if (resolution !== "768P" && resolution !== "2K") throw new Error("resolution must be 768P or 2K for MiniMax H3");
+        requestBody.resolution = resolution;
+      }
       const hasReference = references(body, "reference_image_urls") > 0 || references(body, "reference_videos") > 0 || trimmed(body.first_image_url);
-      return { kind: "submit", model: model, action: hasReference ? "image_to_video" : "text_to_video", requestBody: Object.assign({}, body, { model: model }) };
+      return { kind: "submit", model: model, action: hasReference ? "image_to_video" : "text_to_video", requestBody: requestBody };
     },
     render: function (ctx, task) { return publicTask(ctx, task); },
   },

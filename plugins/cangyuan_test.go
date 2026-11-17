@@ -152,3 +152,70 @@ func TestCangyuanPollingAndBillingFactsMatchDocumentedFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, generationRatios, "per-generation prices must not be multiplied by n")
 }
+
+func TestCangyuanMiniMaxH3ResolutionValidation(t *testing.T) {
+	source, err := builtinplugins.Source("cangyuan")
+	require.NoError(t, err)
+	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "cangyuan"})
+	require.NoError(t, err)
+	assert.Equal(t, "1.1.0", plugin.Meta.Version)
+
+	decode := func(model, upstreamModel string, body map[string]any) (map[string]any, error) {
+		value, callErr := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
+			"model": model, "upstreamModel": upstreamModel,
+			"body": map[string]any{"kind": "json", "value": body},
+		})
+		if callErr != nil {
+			return nil, callErr
+		}
+		return value.(map[string]any), nil
+	}
+
+	for _, tc := range []struct {
+		name          string
+		model         string
+		upstreamModel string
+		resolution    string
+		want          string
+	}{
+		{"mm4 direct", "mm4-minimax-h3", "mm4-minimax-h3", "768p", "768P"},
+		{"mm5 direct", "mm5-minimax-h3", "mm5-minimax-h3", "2k", "2K"},
+		{"mapped public alias", "minimax-h3", "mm5-minimax-h3", "2K", "2K"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{"model": tc.model, "prompt": "a lake", "resolution": tc.resolution}
+			decoded, callErr := decode(tc.model, tc.upstreamModel, body)
+			require.NoError(t, callErr)
+			requestBody := decoded["requestBody"].(map[string]any)
+			assert.Equal(t, tc.want, requestBody["resolution"])
+			assert.Equal(t, tc.model, requestBody["model"], "the client-facing alias stays pinned")
+
+			descriptorValue, callErr := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{
+				"baseUrl": "https://direct-api.cangyuansuanli.cn", "apiKey": "secret",
+				"model": tc.model, "upstreamModel": tc.upstreamModel, "action": decoded["action"], "requestBody": requestBody,
+			})
+			require.NoError(t, callErr)
+			descriptor := descriptorValue.(map[string]any)
+			assert.Equal(t, "https://direct-api.cangyuansuanli.cn/v1/videos", descriptor["url"])
+			assert.Equal(t, tc.upstreamModel, descriptor["body"].(map[string]any)["model"])
+			assert.Equal(t, tc.want, descriptor["body"].(map[string]any)["resolution"])
+		})
+	}
+
+	omitted, err := decode("minimax-h3", "mm4-minimax-h3", map[string]any{"model": "minimax-h3", "prompt": "a lake"})
+	require.NoError(t, err)
+	assert.NotContains(t, omitted["requestBody"], "resolution", "an omitted resolution stays omitted for the upstream default")
+
+	for _, resolution := range []any{"720p", "1080P", "4K", "", nil, 768} {
+		_, err = decode("minimax-h3", "mm5-minimax-h3", map[string]any{
+			"model": "minimax-h3", "prompt": "a lake", "resolution": resolution,
+		})
+		require.ErrorContains(t, err, "resolution must be 768P or 2K for MiniMax H3")
+	}
+
+	seedance, err := decode("sd17-seedance-2.5", "sd17-seedance-2.5", map[string]any{
+		"model": "sd17-seedance-2.5", "prompt": "a lake", "resolution": "1080p",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1080p", seedance["requestBody"].(map[string]any)["resolution"], "other video models remain passthrough")
+}
