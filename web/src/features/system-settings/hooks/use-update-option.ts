@@ -32,6 +32,8 @@ const STATUS_RELATED_KEYS = new Set([
   'SidebarModulesAdmin',
   'DegradationMonitorURL',
   'DegradationMonitorUserVisible',
+  'FeedbackPageURL',
+  'FeedbackPageUserVisible',
   'Notice',
   'LogConsumeEnabled',
   'log_setting.user_export_enabled',

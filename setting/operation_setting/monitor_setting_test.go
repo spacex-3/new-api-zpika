@@ -89,3 +89,11 @@ func TestValidateChannelTestConcurrency(t *testing.T) {
 	assert.Error(t, ValidateChannelTestConcurrency("33"))
 	assert.Error(t, ValidateChannelTestConcurrency("1.5"))
 }
+
+func TestValidateChannelErrorAlertThreshold(t *testing.T) {
+	require.NoError(t, ValidateChannelErrorAlertThreshold("1"))
+	require.NoError(t, ValidateChannelErrorAlertThreshold("100"))
+	assert.Error(t, ValidateChannelErrorAlertThreshold("0"))
+	assert.Error(t, ValidateChannelErrorAlertThreshold("101"))
+	assert.Error(t, ValidateChannelErrorAlertThreshold("1.5"))
+}

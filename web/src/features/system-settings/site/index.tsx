@@ -35,6 +35,8 @@ const defaultSiteSettings: SiteSettings = {
   TaskPublicAddress: '',
   DegradationMonitorURL: '',
   DegradationMonitorUserVisible: false,
+  FeedbackPageURL: '',
+  FeedbackPageUserVisible: false,
   'general_setting.docs_link': '',
   'legal.user_agreement': '',
   'legal.privacy_policy': '',

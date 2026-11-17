@@ -9,10 +9,11 @@ import (
 )
 
 type MonitorSetting struct {
-	AutoTestChannelEnabled bool    `json:"auto_test_channel_enabled"`
-	AutoTestChannelMinutes float64 `json:"auto_test_channel_minutes"`
-	ChannelTestMode        string  `json:"channel_test_mode"`
-	ChannelTestConcurrency int     `json:"channel_test_concurrency"`
+	AutoTestChannelEnabled     bool    `json:"auto_test_channel_enabled"`
+	AutoTestChannelMinutes     float64 `json:"auto_test_channel_minutes"`
+	ChannelTestMode            string  `json:"channel_test_mode"`
+	ChannelTestConcurrency     int     `json:"channel_test_concurrency"`
+	ChannelErrorAlertThreshold int     `json:"channel_error_alert_threshold"`
 }
 
 const (
@@ -20,17 +21,21 @@ const (
 	ChannelTestModeAutoBanOnly     = "auto_ban_only"
 	ChannelTestModePassiveRecovery = "passive_recovery"
 
-	ChannelTestConcurrencyOptionKey = "monitor_setting.channel_test_concurrency"
-	DefaultChannelTestConcurrency   = 1
-	MaxChannelTestConcurrency       = 32
+	ChannelTestConcurrencyOptionKey     = "monitor_setting.channel_test_concurrency"
+	ChannelErrorAlertThresholdOptionKey = "monitor_setting.channel_error_alert_threshold"
+	DefaultChannelTestConcurrency       = 1
+	MaxChannelTestConcurrency           = 32
+	DefaultChannelErrorAlertThreshold   = 10
+	MaxChannelErrorAlertThreshold       = 100
 )
 
 // 默认配置
 var monitorSetting = MonitorSetting{
-	AutoTestChannelEnabled: false,
-	AutoTestChannelMinutes: 10,
-	ChannelTestMode:        ChannelTestModeScheduledAll,
-	ChannelTestConcurrency: DefaultChannelTestConcurrency,
+	AutoTestChannelEnabled:     false,
+	AutoTestChannelMinutes:     10,
+	ChannelTestMode:            ChannelTestModeScheduledAll,
+	ChannelTestConcurrency:     DefaultChannelTestConcurrency,
+	ChannelErrorAlertThreshold: DefaultChannelErrorAlertThreshold,
 }
 
 func init() {
@@ -59,6 +64,7 @@ func GetMonitorSetting() *MonitorSetting {
 		monitorSetting.ChannelTestMode = ChannelTestModeScheduledAll
 	}
 	monitorSetting.ChannelTestConcurrency = NormalizeChannelTestConcurrency(monitorSetting.ChannelTestConcurrency)
+	monitorSetting.ChannelErrorAlertThreshold = NormalizeChannelErrorAlertThreshold(monitorSetting.ChannelErrorAlertThreshold)
 	return &monitorSetting
 }
 
@@ -76,6 +82,21 @@ func ValidateChannelTestConcurrency(value string) error {
 	concurrency, err := strconv.Atoi(value)
 	if err != nil || concurrency < 1 || concurrency > MaxChannelTestConcurrency {
 		return fmt.Errorf("channel test concurrency must be between 1 and %d", MaxChannelTestConcurrency)
+	}
+	return nil
+}
+
+func NormalizeChannelErrorAlertThreshold(threshold int) int {
+	if threshold < 1 {
+		return DefaultChannelErrorAlertThreshold
+	}
+	return min(threshold, MaxChannelErrorAlertThreshold)
+}
+
+func ValidateChannelErrorAlertThreshold(value string) error {
+	threshold, err := strconv.Atoi(value)
+	if err != nil || threshold < 1 || threshold > MaxChannelErrorAlertThreshold {
+		return fmt.Errorf("channel error alert threshold must be between 1 and %d", MaxChannelErrorAlertThreshold)
 	}
 	return nil
 }

@@ -43,6 +43,7 @@ import { useTranslation } from 'react-i18next'
 import type { SidebarBadges, SidebarData } from '@/components/layout/types'
 import { useStatus } from '@/hooks/use-status'
 import { canAccessDegradationMonitor } from '@/lib/degradation-monitor'
+import { canAccessFeedbackPage } from '@/lib/feedback-page'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -57,6 +58,7 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
   const { status } = useStatus()
   const userRole = useAuthStore((state) => state.auth.user?.role)
   const showDegradationMonitor = canAccessDegradationMonitor(status, userRole)
+  const showFeedbackPage = canAccessFeedbackPage(status, userRole)
 
   return {
     navGroups: [
@@ -118,6 +120,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
                   title: t('Degradation Monitor'),
                   url: '/degradation-monitor' as const,
                   icon: BrainCircuit,
+                },
+              ]
+            : []),
+          ...(showFeedbackPage
+            ? [
+                {
+                  title: t('Feedback'),
+                  url: '/feedback' as const,
+                  icon: MessageSquare,
                 },
               ]
             : []),

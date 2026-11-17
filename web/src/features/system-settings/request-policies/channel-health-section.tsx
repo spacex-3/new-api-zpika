@@ -100,6 +100,14 @@ const createChannelHealthSchema = (
             MAX_CHANNEL_TEST_CONCURRENCY,
             t('Channel test concurrency must be between 1 and 32')
           ),
+        channel_error_alert_threshold: z.coerce
+          .number()
+          .int(t('Enter a positive integer'))
+          .min(1, t('Channel error alert threshold must be between 1 and 100'))
+          .max(
+            100,
+            t('Channel error alert threshold must be between 1 and 100')
+          ),
         channel_test_mode: z.enum(channelTestModes),
       }),
     })
@@ -139,6 +147,7 @@ type NormalizedChannelHealthValues = {
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_concurrency': number
+  'monitor_setting.channel_error_alert_threshold': number
   'monitor_setting.channel_test_mode': ChannelTestMode
 }
 
@@ -166,6 +175,8 @@ const buildFormDefaults = (
       defaults['monitor_setting.auto_test_channel_minutes'],
     channel_test_concurrency:
       defaults['monitor_setting.channel_test_concurrency'],
+    channel_error_alert_threshold:
+      defaults['monitor_setting.channel_error_alert_threshold'],
     channel_test_mode: normalizeChannelTestMode(
       defaults['monitor_setting.channel_test_mode']
     ),
@@ -190,6 +201,8 @@ const normalizeDefaults = (
     defaults['monitor_setting.auto_test_channel_minutes'],
   'monitor_setting.channel_test_concurrency':
     defaults['monitor_setting.channel_test_concurrency'],
+  'monitor_setting.channel_error_alert_threshold':
+    defaults['monitor_setting.channel_error_alert_threshold'],
   'monitor_setting.channel_test_mode': normalizeChannelTestMode(
     defaults['monitor_setting.channel_test_mode']
   ),
@@ -213,6 +226,8 @@ const normalizeFormValues = (
     values.monitor_setting.auto_test_channel_minutes,
   'monitor_setting.channel_test_concurrency':
     values.monitor_setting.channel_test_concurrency,
+  'monitor_setting.channel_error_alert_threshold':
+    values.monitor_setting.channel_error_alert_threshold,
   'monitor_setting.channel_test_mode': values.monitor_setting.channel_test_mode,
 })
 
@@ -454,6 +469,31 @@ export function ChannelHealthSection({
                     <FormDescription>
                       {t(
                         'Maximum number of channels tested at the same time (1-32)'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='monitor_setting.channel_error_alert_threshold'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Channel error alert threshold')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={100}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Notify administrators when a channel reaches this many failures within one minute (1-100)'
                       )}
                     </FormDescription>
                     <FormMessage />

@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
@@ -60,25 +61,30 @@ func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 func TestChannelErrorAlertTrackerUsesRollingFailureCount(t *testing.T) {
 	tracker := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
 	startedAt := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
-	for count := range channelErrorAlertThreshold {
-		gotCount, notify := tracker.record(7, startedAt.Add(time.Duration(count)*time.Second))
+	const threshold = 5
+	for count := range threshold - 1 {
+		gotCount, notify := tracker.record(7, startedAt.Add(time.Duration(count)*time.Second), threshold)
 		assert.Equal(t, count+1, gotCount)
 		assert.False(t, notify)
 	}
-	gotCount, notify := tracker.record(7, startedAt.Add(10*time.Second))
-	assert.Equal(t, channelErrorAlertThreshold+1, gotCount)
+	gotCount, notify := tracker.record(7, startedAt.Add(4*time.Second), threshold)
+	assert.Equal(t, threshold, gotCount)
 	assert.True(t, notify)
-	_, notify = tracker.record(7, startedAt.Add(11*time.Second))
+	_, notify = tracker.record(7, startedAt.Add(5*time.Second), threshold)
 	assert.False(t, notify, "the same active window must only notify once")
-	_, notify = tracker.record(8, startedAt.Add(11*time.Second))
+	_, notify = tracker.record(8, startedAt.Add(5*time.Second), threshold)
 	assert.False(t, notify, "channels must have independent counters")
 
-	gotCount, notify = tracker.record(7, startedAt.Add(61*time.Second))
-	assert.Equal(t, channelErrorAlertThreshold+1, gotCount)
+	for count := range threshold - 1 {
+		gotCount, notify = tracker.record(7, startedAt.Add(time.Duration(65+count)*time.Second), threshold)
+		assert.False(t, notify)
+	}
+	assert.Equal(t, threshold-1, gotCount)
+	_, notify = tracker.record(7, startedAt.Add(69*time.Second), threshold)
 	assert.True(t, notify, "the alert must re-arm after old failures leave the rolling window")
 }
 
-func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
+func TestProcessChannelErrorNotifiesAtConfiguredThreshold(t *testing.T) {
 	previousDB, previousType := model.DB, common.MainDatabaseType()
 	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
 	previousAutoDisable, previousErrorLog := common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled
@@ -135,18 +141,16 @@ func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	apiErr := types.WithOpenAIError(types.OpenAIError{Message: "invalid credential", Type: "invalid_request_error", Code: "invalid_api_key"}, http.StatusUnauthorized)
 	channelError := types.ChannelError{ChannelId: channelID, ChannelName: "edge-singapore"}
-	for range channelErrorAlertThreshold - 1 {
+	monitorSetting := operation_setting.GetMonitorSetting()
+	previousThreshold := monitorSetting.ChannelErrorAlertThreshold
+	monitorSetting.ChannelErrorAlertThreshold = 5
+	t.Cleanup(func() { monitorSetting.ChannelErrorAlertThreshold = previousThreshold })
+	for range 4 {
 		ProcessChannelError(c, channelError, apiErr, nil)
 	}
 	successContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	successContext.Set("channel_id", channelID)
 	MarkRequestPolicySuccess(successContext, nil)
-	ProcessChannelError(c, channelError, apiErr, nil)
-	select {
-	case <-notifications:
-		t.Fatal("notification was sent before the threshold was exceeded")
-	default:
-	}
 	ProcessChannelError(c, channelError, apiErr, nil)
 
 	select {
@@ -154,7 +158,7 @@ func TestProcessChannelErrorNotifiesAfterElevenFailures(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("channel_error_%d", channelID), notification.Type)
 		assert.Equal(t, "Frequent channel errors", notification.Title)
 		assert.Contains(t, notification.Content, `Channel "edge-singapore" (#77)`)
-		assert.Contains(t, notification.Content, "failed 11 times within the last minute")
+		assert.Contains(t, notification.Content, "failed 5 times within the last minute")
 		assert.Contains(t, notification.Content, "Latest error code: invalid_api_key")
 		assert.Contains(t, notification.Content, "HTTP status: 401")
 	case <-time.After(5 * time.Second):

@@ -45,6 +45,8 @@ const SITE_SECTIONS = [
           TaskPublicAddress: settings.TaskPublicAddress,
           DegradationMonitorURL: settings.DegradationMonitorURL,
           DegradationMonitorUserVisible: settings.DegradationMonitorUserVisible,
+          FeedbackPageURL: settings.FeedbackPageURL,
+          FeedbackPageUserVisible: settings.FeedbackPageUserVisible,
           general_setting: {
             docs_link: settings['general_setting.docs_link'],
           },

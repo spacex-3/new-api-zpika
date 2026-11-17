@@ -48,6 +48,7 @@ func GetStatus(c *gin.Context) {
 
 	legalSetting := system_setting.GetLegalSettings()
 	degradationMonitorURL := strings.TrimSpace(common.OptionMap[degradationMonitorURLKey])
+	feedbackPageURL := strings.TrimSpace(common.OptionMap[feedbackPageURLKey])
 
 	data := gin.H{
 		"version":                     common.Version,
@@ -111,6 +112,8 @@ func GetStatus(c *gin.Context) {
 		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
 		"degradation_monitor_configured":   degradationMonitorURL != "",
 		"degradation_monitor_user_visible": degradationMonitorURL != "" && common.OptionMap[degradationMonitorUserVisibleKey] == "true",
+		"feedback_page_configured":         feedbackPageURL != "",
+		"feedback_page_user_visible":       feedbackPageURL != "" && common.OptionMap[feedbackPageUserVisibleKey] == "true",
 
 		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
 		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,

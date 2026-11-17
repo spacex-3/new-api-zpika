@@ -53,6 +53,8 @@ const _systemInfoSchema = z.object({
   TaskPublicAddress: z.string().refine(isValidTaskPublicAddress),
   DegradationMonitorURL: z.string(),
   DegradationMonitorUserVisible: z.boolean(),
+  FeedbackPageURL: z.string(),
+  FeedbackPageUserVisible: z.boolean(),
   Logo: z.string().url().optional().or(z.literal('')),
   Footer: z.string().optional(),
   About: z.string().optional(),
@@ -89,6 +91,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     DegradationMonitorUserVisible: Boolean(
       defaultValues.DegradationMonitorUserVisible
     ),
+    FeedbackPageURL: normalizeValue(defaultValues.FeedbackPageURL),
+    FeedbackPageUserVisible: Boolean(defaultValues.FeedbackPageUserVisible),
     Logo: normalizeValue(defaultValues.Logo),
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
@@ -128,6 +132,21 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       }
     }, t('Enter a valid HTTPS monitor URL without credentials or fragments')),
     DegradationMonitorUserVisible: z.boolean(),
+    FeedbackPageURL: z.string().refine((value) => {
+      if (value === '') return true
+      try {
+        const parsed = new URL(value)
+        return (
+          parsed.protocol === 'https:' &&
+          parsed.username === '' &&
+          parsed.password === '' &&
+          parsed.hash === ''
+        )
+      } catch {
+        return false
+      }
+    }, t('Enter a valid HTTPS feedback URL without credentials or fragments')),
+    FeedbackPageUserVisible: z.boolean(),
     Logo: z.string().url().optional().or(z.literal('')),
     Footer: z.string().optional(),
     About: z.string().optional(),
@@ -154,6 +173,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
           ([left], [right]) => {
             if (left === 'DegradationMonitorURL') return -1
             if (right === 'DegradationMonitorURL') return 1
+            if (left === 'FeedbackPageURL') return -1
+            if (right === 'FeedbackPageURL') return 1
             return 0
           }
         )
@@ -162,7 +183,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
           if (
             key === 'ServerAddress' ||
             key === 'TaskPublicAddress' ||
-            key === 'DegradationMonitorURL'
+            key === 'DegradationMonitorURL' ||
+            key === 'FeedbackPageURL'
           ) {
             v = v.replace(/\/+$/, '')
           }
@@ -280,6 +302,49 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                       </FormLabel>
                       <FormDescription>
                         {t('Administrators can always access the monitor.')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='FeedbackPageURL'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Feedback Page URL')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='https://feedback.example.com/embed'
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('HTTPS page embedded by the feedback menu.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='FeedbackPageUserVisible'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between gap-4 py-2.5'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>{t('Show feedback page to users')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Administrators can always access the feedback page.'
+                        )}
                       </FormDescription>
                     </div>
                     <FormControl>

@@ -231,6 +231,20 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
+	if option.Key == feedbackPageURLKey {
+		option.Value = strings.TrimRight(strings.TrimSpace(option.Value.(string)), "/")
+		if err := validateFeedbackPageURL(option.Value.(string)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	if option.Key == feedbackPageUserVisibleKey && option.Value == "true" {
+		pageURL, _ := feedbackPageSettings()
+		if pageURL == "" {
+			common.ApiErrorT(c, "Configure the feedback page URL before making it visible to users")
+			return
+		}
+	}
 	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {

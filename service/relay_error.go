@@ -18,10 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	channelErrorAlertThreshold = 10
-	channelErrorAlertWindow    = time.Minute
-)
+const channelErrorAlertWindow = time.Minute
 
 type channelErrorWindow struct {
 	failures []time.Time
@@ -35,7 +32,8 @@ type channelErrorAlertTracker struct {
 
 var channelErrorAlerts = channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
 
-func (t *channelErrorAlertTracker) record(channelID int, now time.Time) (int, bool) {
+func (t *channelErrorAlertTracker) record(channelID int, now time.Time, threshold int) (int, bool) {
+	threshold = operation_setting.NormalizeChannelErrorAlertThreshold(threshold)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	window := t.channels[channelID]
@@ -45,14 +43,14 @@ func (t *channelErrorAlertTracker) record(channelID int, now time.Time) (int, bo
 		firstActive++
 	}
 	window.failures = window.failures[firstActive:]
-	if len(window.failures) <= channelErrorAlertThreshold {
+	if len(window.failures) < threshold {
 		window.notified = false
 	}
 	window.failures = append(window.failures, now)
-	if len(window.failures) > channelErrorAlertThreshold+1 {
-		window.failures = window.failures[len(window.failures)-(channelErrorAlertThreshold+1):]
+	if len(window.failures) > threshold {
+		window.failures = window.failures[len(window.failures)-threshold:]
 	}
-	shouldNotify := len(window.failures) > channelErrorAlertThreshold && !window.notified
+	shouldNotify := len(window.failures) >= threshold && !window.notified
 	if shouldNotify {
 		window.notified = true
 	}
@@ -118,7 +116,8 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	upstreamURLs := common.UpstreamAddresses(c)
 	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
 	if channelError.ChannelId > 0 {
-		if count, shouldNotify := channelErrorAlerts.record(channelError.ChannelId, time.Now()); shouldNotify {
+		threshold := operation_setting.GetMonitorSetting().ChannelErrorAlertThreshold
+		if count, shouldNotify := channelErrorAlerts.record(channelError.ChannelId, time.Now(), threshold); shouldNotify {
 			errorCode := string(err.GetErrorCode())
 			if errorCode == "" {
 				errorCode = "unknown"

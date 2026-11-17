@@ -87,6 +87,8 @@ func InitOptionMap() {
 	common.OptionMap["TaskPublicAddress"] = system_setting.TaskPublicAddress
 	common.OptionMap["DegradationMonitorURL"] = ""
 	common.OptionMap["DegradationMonitorUserVisible"] = "false"
+	common.OptionMap["FeedbackPageURL"] = ""
+	common.OptionMap["FeedbackPageUserVisible"] = "false"
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
 	common.OptionMap["WorkerAllowHttpImageRequestEnabled"] = strconv.FormatBool(system_setting.WorkerAllowHttpImageRequestEnabled)
@@ -266,6 +268,9 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
+	}
+	if key == operation_setting.ChannelErrorAlertThresholdOptionKey {
+		return operation_setting.ValidateChannelErrorAlertThreshold(value)
 	}
 	if key == operation_setting.LogMaxRangeDaysOptionKey {
 		return operation_setting.ValidateLogMaxRangeDays(value)
