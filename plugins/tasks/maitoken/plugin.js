@@ -4,7 +4,12 @@ const VIDEO_MODELS = {
   "doubao-seedance-2-0-mini-260615": { resolutions: ["480p", "720p"], maxDuration: 15 },
   "doubao-seedance-2-5-260628": { resolutions: ["480p", "720p", "1080p"], maxDuration: 30 },
 };
-const MODELS = Object.keys(VIDEO_MODELS);
+const SEEDANCE_MODELS = Object.keys(VIDEO_MODELS);
+const MINIMAX_MODELS = {
+  "minimax_h3-768p": { resolution: "768p" },
+  "minimax_h3-2k": { resolution: "2k" },
+};
+const MODELS = SEEDANCE_MODELS.concat(Object.keys(MINIMAX_MODELS));
 const ALL_RESOLUTIONS = ["480p", "720p", "1080p", "4k"];
 const DEFAULT_PROFILE = { resolutions: ALL_RESOLUTIONS, maxDuration: 30 };
 
@@ -53,16 +58,34 @@ function usageExamples(profile) {
   }];
 }
 
+function minimaxUsageSchema(profile) {
+  return {
+    seconds: {
+      type: "number",
+      unit: "second",
+      description: { en: "Video generation unit price", zh: "视频生成单价" },
+    },
+    resolution: {
+      enum: [profile.resolution],
+      description: { en: "Output video resolution", zh: "输出视频分辨率" },
+    },
+  };
+}
+
+function minimaxUsageExamples(profile) {
+  return [{ label: "H3 " + profile.resolution + " · 5s", facts: { seconds: 5, resolution: profile.resolution } }];
+}
+
 export const meta = {
   apiVersion: 1,
   key: "maitoken",
   name: "渠道 3",
   icon: "Doubao.Color",
   description: {
-    en: "Ark-compatible Seedance generation and Seedance video editing through MAI Token",
-    zh: "通过 MAI Token 调用 Ark 兼容 Seedance 生成和 Seedance 视频编辑",
+    en: "Seedance generation and editing plus MiniMax H3 video generation through MAI Token",
+    zh: "通过 MAI Token 调用 Seedance 生成与编辑以及 MiniMax H3 视频生成",
   },
-  version: "1.1.4",
+  version: "1.2.0",
   author: { name: "QuantumNous" },
   baseUrl: "https://api.mai-token.com",
   models: MODELS,
@@ -70,11 +93,14 @@ export const meta = {
   requiredCapabilities: ["duration-auto@1"],
   usageSchema: usageSchema(DEFAULT_PROFILE),
   usageExamples: usageExamples(DEFAULT_PROFILE),
-  usageProfiles: MODELS.map(function (model) {
+  usageProfiles: SEEDANCE_MODELS.map(function (model) {
     return { models: [model], schema: usageSchema(VIDEO_MODELS[model]), examples: usageExamples(VIDEO_MODELS[model]) };
-  }),
+  }).concat(Object.keys(MINIMAX_MODELS).map(function (model) {
+    const profile = MINIMAX_MODELS[model];
+    return { models: [model], schema: minimaxUsageSchema(profile), examples: minimaxUsageExamples(profile) };
+  })),
   routes: [
-    { method: "POST", path: "/api/v3/contents/generations/tasks", type: "submit", decode: "createArkTask", render: "arkTaskCreated", models: MODELS },
+    { method: "POST", path: "/api/v3/contents/generations/tasks", type: "submit", decode: "createArkTask", render: "arkTaskCreated", models: SEEDANCE_MODELS },
     { method: "GET", path: "/api/v3/contents/generations/tasks/:task_id", type: "query", render: "arkTaskStatus" },
   ],
   protocols: [{ name: "openai_video", models: MODELS }],
@@ -277,6 +303,35 @@ function normalizedVideoPayload(body, model) {
   return payload;
 }
 
+function minimaxProfile(model, upstreamModel) {
+  return MINIMAX_MODELS[trimmed(upstreamModel)] || MINIMAX_MODELS[trimmed(model)];
+}
+
+function minimaxPayload(body, profile) {
+  const metadata = object(body.metadata);
+  const source = Object.assign({}, metadata, body);
+  const durationValue = source.duration === undefined ? source.seconds : source.duration;
+  const duration = durationValue === undefined || durationValue === null || durationValue === "" ? 5 : Number(durationValue);
+  if (!Number.isInteger(duration) || duration !== 5) throw new Error("duration must be 5 for MiniMax H3");
+  const resolution = trimmed(source.resolution || source.size || profile.resolution).toLowerCase();
+  if (resolution !== profile.resolution) throw new Error("resolution must be " + profile.resolution + " for this MiniMax H3 model");
+  const ratio = trimmed(source.ratio || source.aspect_ratio || "16:9");
+  if (ratio !== "16:9" && ratio !== "9:16") throw new Error("ratio must be 16:9 or 9:16 for MiniMax H3");
+  if (source.contract_version !== undefined && source.contract_version !== "video-v1") throw new Error("contract_version must be video-v1");
+  if (source.callback_url !== undefined && source.callback_url !== null) throw new Error("callback_url is not supported; query the task instead");
+  if (source.mode !== undefined || source.generate_audio !== undefined || source.content !== undefined ||
+      source.images !== undefined || source.input_reference !== undefined || hasReference(source)) {
+    throw new Error("MiniMax H3 models on MAI Token support text-to-video requests only");
+  }
+  return {
+    contract_version: "video-v1",
+    prompt: trimmed(body.prompt),
+    duration: duration,
+    resolution: resolution,
+    ratio: ratio,
+  };
+}
+
 function videoURL(data) {
   data = object(data);
   const content = object(data.content);
@@ -377,6 +432,15 @@ export const protocols = {
       const body = ctx.body.value;
       if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("request body must be an object");
       if (!trimmed(body.prompt)) throw new Error("prompt is required");
+      const minimax = minimaxProfile(ctx.model, ctx.upstreamModel);
+      if (minimax) {
+        return {
+          kind: "submit",
+          model: ctx.model,
+          action: "text_to_video",
+          requestBody: { transport: "video-v1", payload: minimaxPayload(body, minimax) },
+        };
+      }
       const payload = normalizedVideoPayload(body, ctx.model);
       if (body.mode !== undefined && body.mode !== "video_edit") throw new Error("mode must be video_edit when provided");
       if (body.contract_version !== undefined && body.contract_version !== "video-v1") throw new Error("contract_version must be video-v1");
@@ -495,6 +559,8 @@ export function extractUsage(ctx) {
   if (ctx.usagePurpose === "billing_ratios") return null;
   const request = object(ctx.requestBody);
   const payload = object(request.payload);
+  const minimax = minimaxProfile(ctx.model, ctx.upstreamModel);
+  if (minimax) return { seconds: 5, resolution: minimax.resolution };
   const profile = modelProfile(ctx.model);
   const resolution = validateResolution(payload.resolution, ctx.model);
   let outputSeconds;
@@ -517,6 +583,7 @@ export function extractUsage(ctx) {
 }
 
 export function extractUsageOnComplete(task, taskResult, body) {
+  if (minimaxProfile(task.model, task.upstreamModel)) return {};
   body = object(body);
   const status = String(body.status || "").toLowerCase();
   if (status !== "succeeded" && status !== "completed") return {};

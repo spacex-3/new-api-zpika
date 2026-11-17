@@ -14,13 +14,22 @@ func TestMAITokenVideoEditAndArkContracts(t *testing.T) {
 	require.NoError(t, err)
 	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "maitoken"})
 	require.NoError(t, err)
-	assert.Equal(t, "1.1.4", plugin.Meta.Version)
+	assert.Equal(t, "1.2.0", plugin.Meta.Version)
 	assert.ElementsMatch(t, []string{
 		"doubao-seedance-2-0-260128",
 		"doubao-seedance-2-0-fast-260128",
 		"doubao-seedance-2-0-mini-260615",
 		"doubao-seedance-2-5-260628",
+		"minimax_h3-768p",
+		"minimax_h3-2k",
 	}, plugin.Meta.Models)
+	require.NotEmpty(t, plugin.Meta.Routes)
+	assert.ElementsMatch(t, []string{
+		"doubao-seedance-2-0-260128",
+		"doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-0-mini-260615",
+		"doubao-seedance-2-5-260628",
+	}, plugin.Meta.Routes[0].Models, "MiniMax H3 must not enter the Seedance Ark route")
 
 	editContext := map[string]any{
 		"model":         "doubao-seedance-2-5-260628",
@@ -111,6 +120,113 @@ func TestMAITokenVideoEditAndArkContracts(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "https://api.mai-token.com/api/v3/contents/generations/tasks", arkSubmitValue.(map[string]any)["url"])
+}
+
+func TestMAITokenMiniMaxH3VideoContracts(t *testing.T) {
+	source, err := builtinplugins.Source("maitoken")
+	require.NoError(t, err)
+	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "maitoken"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		model      string
+		resolution string
+		body       map[string]any
+	}{
+		{"minimax_h3-768p", "768p", map[string]any{"prompt": "lake at sunrise"}},
+		{"minimax_h3-2k", "2k", map[string]any{
+			"prompt": "lake at sunrise", "contract_version": "video-v1", "seconds": "5",
+			"metadata": map[string]any{"resolution": "2K", "aspect_ratio": "9:16"},
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.model, func(t *testing.T) {
+			body := map[string]any{"model": test.model}
+			for key, value := range test.body {
+				body[key] = value
+			}
+			decodedValue, callErr := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
+				"model": test.model, "upstreamModel": test.model, "body": map[string]any{"kind": "json", "value": body},
+			})
+			require.NoError(t, callErr)
+			decoded := decodedValue.(map[string]any)
+			requestBody := decoded["requestBody"].(map[string]any)
+			assert.Equal(t, "video-v1", requestBody["transport"])
+			assert.Equal(t, "text_to_video", decoded["action"])
+			payload := requestBody["payload"].(map[string]any)
+			assert.Equal(t, "video-v1", payload["contract_version"])
+			assert.EqualValues(t, 5, payload["duration"])
+			assert.Equal(t, test.resolution, payload["resolution"])
+			assert.Equal(t, body["prompt"], payload["prompt"])
+			require.Len(t, payload, 5)
+			if test.model == "minimax_h3-2k" {
+				assert.Equal(t, "9:16", payload["ratio"])
+			} else {
+				assert.Equal(t, "16:9", payload["ratio"])
+			}
+
+			submitValue, callErr := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{
+				"baseUrl": "https://api.mai-token.com", "apiKey": "secret", "model": test.model,
+				"upstreamModel": test.model, "action": decoded["action"], "requestBody": requestBody,
+			})
+			require.NoError(t, callErr)
+			submit := submitValue.(map[string]any)
+			assert.Equal(t, "https://api.mai-token.com/v1/videos", submit["url"])
+			assert.Equal(t, test.model, submit["body"].(map[string]any)["model"])
+			require.Len(t, submit["body"].(map[string]any), 6)
+
+			parsedValue, callErr := plugin.Engine.Call(t.Context(), "parseSubmitResponse", map[string]any{"requestBody": requestBody}, map[string]any{
+				"status": 202, "body": map[string]any{"id": "upstream-h3", "status": "queued"},
+			})
+			require.NoError(t, callErr)
+			state := parsedValue.(map[string]any)["state"]
+			queryValue, callErr := plugin.Engine.Call(t.Context(), "buildQueryRequest", map[string]any{
+				"baseUrl": "https://api.mai-token.com", "apiKey": "secret", "taskId": "upstream-h3", "state": state,
+			})
+			require.NoError(t, callErr)
+			assert.Equal(t, "https://api.mai-token.com/v1/videos/upstream-h3", queryValue.(map[string]any)["url"])
+
+			usageValue, callErr := plugin.Engine.Call(t.Context(), "extractUsage", map[string]any{
+				"model": test.model, "upstreamModel": test.model, "requestBody": requestBody,
+			})
+			require.NoError(t, callErr)
+			usage := usageValue.(map[string]any)
+			assert.EqualValues(t, 5, usage["seconds"])
+			assert.Equal(t, test.resolution, usage["resolution"])
+
+			schema, examples := plugin.Meta.UsageForModel(test.model)
+			require.Len(t, schema, 2)
+			assert.Contains(t, schema, "seconds")
+			assert.Contains(t, schema, "resolution")
+			assert.Equal(t, []string{test.resolution}, schema["resolution"].Enum)
+			require.Len(t, examples, 1)
+
+			completionValue, callErr := plugin.Engine.Call(t.Context(), "extractUsageOnComplete", map[string]any{
+				"model": test.model, "upstreamModel": test.model,
+			}, map[string]any{"status": "SUCCESS"}, map[string]any{
+				"status": "completed", "billing": map[string]any{"billing_tokens": 999999},
+			})
+			require.NoError(t, callErr)
+			assert.Empty(t, completionValue)
+		})
+	}
+
+	for _, body := range []map[string]any{
+		{"prompt": "lake", "duration": 4},
+		{"prompt": "lake", "resolution": "2k"},
+		{"prompt": "lake", "ratio": "adaptive"},
+		{"prompt": "lake", "video_urls": []any{"https://media.example/reference.mp4"}},
+		{"prompt": "lake", "images": []any{"https://media.example/reference.png"}},
+		{"prompt": "lake", "generate_audio": true},
+		{"prompt": "lake", "mode": "video_edit"},
+		{"prompt": "lake", "contract_version": "video-v2"},
+	} {
+		body["model"] = "minimax_h3-768p"
+		_, callErr := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
+			"model": "minimax_h3-768p", "upstreamModel": "minimax_h3-768p", "body": map[string]any{"kind": "json", "value": body},
+		})
+		require.Error(t, callErr)
+	}
 }
 
 func TestMAITokenVideoGenerationModelsAndUsage(t *testing.T) {
