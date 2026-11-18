@@ -104,6 +104,8 @@ const (
 	MsgChannelNotifyEnabledContent  = "channel.notify_enabled_content"
 	MsgChannelErrorBurstSubject     = "channel.error_burst_subject"
 	MsgChannelErrorBurstContent     = "channel.error_burst_content"
+	MsgChannelUpstreamQuotaSubject  = "channel.upstream_quota_subject"
+	MsgChannelUpstreamQuotaContent  = "channel.upstream_quota_content"
 	MsgChannelTestCompletedSubject  = "channel.test_completed_subject"
 	MsgChannelTestCompletedContent  = "channel.test_completed_content"
 	MsgChannelResponseTimeExceeded  = "channel.response_time_exceeded"

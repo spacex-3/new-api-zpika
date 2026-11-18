@@ -58,6 +58,60 @@ func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 	}
 }
 
+func TestIsUpstreamQuotaError(t *testing.T) {
+	for _, code := range []string{
+		"insufficient_user_quota",
+		"insufficient_quota",
+		"quota_exceeded",
+		"billing_not_active",
+		"billing_hard_limit_reached",
+		"insufficient_balance",
+		"insufficient_funds",
+		"insufficient_credits",
+		"credit_balance_too_low",
+		"payment_required",
+	} {
+		t.Run("code_"+code, func(t *testing.T) {
+			err := types.WithOpenAIError(types.OpenAIError{Message: "upstream rejected the request", Code: code}, http.StatusPaymentRequired)
+			assert.True(t, IsUpstreamQuotaError(err))
+		})
+	}
+
+	for _, message := range []string{
+		"Insufficient user quota, please recharge",
+		"Insufficient account balance",
+		"insufficient balance",
+		"Upstream image account has insufficient balance",
+		"Not enough quota to pre-consume for this request",
+		"Your credit balance is too low to access the API",
+		"You exceeded your current quota, please check your plan and billing details",
+		"This team does not have any credits left",
+		"预扣费额度失败, 用户剩余额度: 0, 需要预扣费额度: 1",
+		"账号余额不足，请充值",
+		"帳號餘額不足，請儲值",
+	} {
+		t.Run("message_"+message, func(t *testing.T) {
+			err := types.NewOpenAIError(errors.New(message), types.ErrorCodeBadResponseStatusCode, http.StatusPaymentRequired)
+			assert.True(t, IsUpstreamQuotaError(err))
+		})
+	}
+
+	for _, message := range []string{
+		"subscription_sharing_unsupported_capability: User subscription sharing is not supported",
+		"rate limit exceeded, retry after 30 seconds",
+		"quota reset information is temporarily unavailable",
+		"billing address is invalid",
+		"credit card was declined",
+		"用户余额充足",
+	} {
+		t.Run("not_quota_"+message, func(t *testing.T) {
+			err := types.NewOpenAIError(errors.New(message), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest)
+			assert.False(t, IsUpstreamQuotaError(err))
+		})
+	}
+	assert.False(t, IsUpstreamQuotaError(nil))
+}
+
 func TestChannelErrorAlertTrackerUsesRollingFailureCount(t *testing.T) {
 	tracker := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
 	startedAt := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
@@ -84,7 +138,7 @@ func TestChannelErrorAlertTrackerUsesRollingFailureCount(t *testing.T) {
 	assert.True(t, notify, "the alert must re-arm after old failures leave the rolling window")
 }
 
-func TestProcessChannelErrorNotifiesAtConfiguredThreshold(t *testing.T) {
+func TestProcessChannelErrorSendsIndependentQuotaAndThresholdAlerts(t *testing.T) {
 	previousDB, previousType := model.DB, common.MainDatabaseType()
 	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
 	previousAutoDisable, previousErrorLog := common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled
@@ -114,7 +168,7 @@ func TestProcessChannelErrorNotifiesAtConfiguredThreshold(t *testing.T) {
 	common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled = false, false
 	constant.NotifyLimitCount = 10
 
-	notifications := make(chan WebhookPayload, 1)
+	notifications := make(chan WebhookPayload, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload WebhookPayload
 		if common.DecodeJson(r.Body, &payload) == nil {
@@ -130,22 +184,35 @@ func TestProcessChannelErrorNotifiesAtConfiguredThreshold(t *testing.T) {
 	root := &model.User{Username: "burst-notification-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Setting: string(settings)}
 	require.NoError(t, database.Create(root).Error)
 
-	const channelID = 77
+	const channelID, retryChannelID = 77, 78
 	channelErrorAlerts.reset(channelID)
-	notifyKey := fmt.Sprintf("%d:channel_error_%d", root.Id, channelID)
-	notifyLimitStore.Delete(notifyKey)
+	channelErrorAlerts.reset(retryChannelID)
+	burstNotifyKey := fmt.Sprintf("%d:channel_error_%d", root.Id, channelID)
+	quotaNotifyKey := fmt.Sprintf("%d:channel_upstream_quota_%d", root.Id, channelID)
+	retryQuotaNotifyKey := fmt.Sprintf("%d:channel_upstream_quota_%d", root.Id, retryChannelID)
+	notifyLimitStore.Delete(burstNotifyKey)
+	notifyLimitStore.Delete(quotaNotifyKey)
+	notifyLimitStore.Delete(retryQuotaNotifyKey)
 	t.Cleanup(func() {
 		channelErrorAlerts.reset(channelID)
-		notifyLimitStore.Delete(notifyKey)
+		channelErrorAlerts.reset(retryChannelID)
+		notifyLimitStore.Delete(burstNotifyKey)
+		notifyLimitStore.Delete(quotaNotifyKey)
+		notifyLimitStore.Delete(retryQuotaNotifyKey)
 	})
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "https://private.example.com")
+	quotaErr := types.NewOpenAIError(errors.New("预扣费额度失败, 用户剩余额度: 0, 需要预扣费额度: 1; upstream https://private.example.com/path?token=quota-token api_key:quota-secret"), types.ErrorCodeBadResponseStatusCode, http.StatusPaymentRequired)
 	apiErr := types.WithOpenAIError(types.OpenAIError{Message: "invalid credential", Type: "invalid_request_error", Code: "invalid_api_key"}, http.StatusUnauthorized)
 	channelError := types.ChannelError{ChannelId: channelID, ChannelName: "edge-singapore"}
 	monitorSetting := operation_setting.GetMonitorSetting()
 	previousThreshold := monitorSetting.ChannelErrorAlertThreshold
 	monitorSetting.ChannelErrorAlertThreshold = 5
 	t.Cleanup(func() { monitorSetting.ChannelErrorAlertThreshold = previousThreshold })
-	for range 4 {
+	ProcessChannelError(c, channelError, quotaErr, nil)
+	ProcessChannelError(c, channelError, quotaErr, nil)
+	ProcessChannelError(c, types.ChannelError{ChannelId: retryChannelID, ChannelName: "edge-tokyo"}, quotaErr, nil)
+	for range 2 {
 		ProcessChannelError(c, channelError, apiErr, nil)
 	}
 	successContext, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -153,16 +220,42 @@ func TestProcessChannelErrorNotifiesAtConfiguredThreshold(t *testing.T) {
 	MarkRequestPolicySuccess(successContext, nil)
 	ProcessChannelError(c, channelError, apiErr, nil)
 
+	received := make(map[string]WebhookPayload)
+	deadline := time.After(5 * time.Second)
+	for len(received) < 3 {
+		select {
+		case notification := <-notifications:
+			received[notification.Type] = notification
+		case <-deadline:
+			t.Fatalf("channel error notifications were not delivered: got %v", received)
+		}
+	}
+
+	quotaNotification, ok := received[fmt.Sprintf("channel_upstream_quota_%d", channelID)]
+	require.True(t, ok)
+	assert.Equal(t, "Upstream balance alert", quotaNotification.Title)
+	assert.Contains(t, quotaNotification.Content, `Channel "edge-singapore" (#77)`)
+	assert.Contains(t, quotaNotification.Content, "HTTP status: 402")
+	assert.Contains(t, quotaNotification.Content, "预扣费额度失败")
+	assert.Contains(t, quotaNotification.Content, "https://***.com/***?token=***")
+	assert.NotContains(t, quotaNotification.Content, "quota-token")
+	assert.NotContains(t, quotaNotification.Content, "quota-secret")
+	retryQuotaNotification, ok := received[fmt.Sprintf("channel_upstream_quota_%d", retryChannelID)]
+	require.True(t, ok)
+	assert.Contains(t, retryQuotaNotification.Content, `Channel "edge-tokyo" (#78)`)
+
+	burstNotification, ok := received[fmt.Sprintf("channel_error_%d", channelID)]
+	require.True(t, ok)
+	assert.Equal(t, "Frequent channel errors", burstNotification.Title)
+	assert.Contains(t, burstNotification.Content, `Channel "edge-singapore" (#77)`)
+	assert.Contains(t, burstNotification.Content, "failed 5 times within the last minute")
+	assert.Contains(t, burstNotification.Content, "Latest error code: invalid_api_key")
+	assert.Contains(t, burstNotification.Content, "HTTP status: 401")
+
 	select {
 	case notification := <-notifications:
-		assert.Equal(t, fmt.Sprintf("channel_error_%d", channelID), notification.Type)
-		assert.Equal(t, "Frequent channel errors", notification.Title)
-		assert.Contains(t, notification.Content, `Channel "edge-singapore" (#77)`)
-		assert.Contains(t, notification.Content, "failed 5 times within the last minute")
-		assert.Contains(t, notification.Content, "Latest error code: invalid_api_key")
-		assert.Contains(t, notification.Content, "HTTP status: 401")
-	case <-time.After(5 * time.Second):
-		t.Fatal("channel error burst notification was not delivered")
+		t.Fatalf("same request and channel sent a duplicate notification: %#v", notification)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

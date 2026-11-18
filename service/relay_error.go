@@ -2,6 +2,8 @@ package service
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +21,79 @@ import (
 )
 
 const channelErrorAlertWindow = time.Minute
+
+const upstreamQuotaAlertContextKeyPrefix = "upstream_quota_alert_sent_"
+
+var upstreamQuotaErrorCodes = []string{
+	"account_balance_insufficient",
+	"billing_hard_limit_reached",
+	"billing_not_active",
+	"credit_balance_too_low",
+	"credit_exhausted",
+	"credits_exhausted",
+	"insufficient_balance",
+	"insufficient_credits",
+	"insufficient_funds",
+	"insufficient_quota",
+	"insufficient_user_quota",
+	"payment_required",
+	"quota_exceeded",
+	"quota_exhausted",
+}
+
+var upstreamQuotaErrorPhrases = []string{
+	"account balance is insufficient",
+	"account balance not enough",
+	"account has insufficient funds",
+	"balance exhausted",
+	"balance is too low",
+	"balance not enough",
+	"billing hard limit",
+	"billing is not active",
+	"billing not active",
+	"credit balance is insufficient",
+	"credit balance is too low",
+	"credits exhausted",
+	"does not have any credits left",
+	"exceeded your current quota",
+	"hard limit has been reached",
+	"insufficient account balance",
+	"insufficient balance",
+	"insufficient credit",
+	"insufficient funds",
+	"insufficient user quota",
+	"no credits left",
+	"not enough balance",
+	"not enough credit",
+	"not enough quota to pre-consume",
+	"out of credit",
+	"payment required",
+	"please recharge",
+	"please top up",
+	"quota exhausted",
+	"quota has been exhausted",
+	"quota is exhausted",
+	"recharge your account",
+	"预扣费额度失败",
+	"余额不足",
+	"余额已耗尽",
+	"余额已用尽",
+	"额度不足",
+	"额度已耗尽",
+	"额度已用尽",
+	"配额不足",
+	"请充值",
+	"欠费",
+	"預扣費額度失敗",
+	"餘額不足",
+	"餘額已耗盡",
+	"餘額已用盡",
+	"額度不足",
+	"額度已耗盡",
+	"額度已用盡",
+	"配額不足",
+	"請儲值",
+}
 
 type channelErrorWindow struct {
 	failures []time.Time
@@ -109,6 +184,22 @@ func ShouldRetryRelayError(c *gin.Context, openaiErr *types.NewAPIError, retryTi
 	return DecideRelayRetry(c, openaiErr, retryTimes).Action == "retry"
 }
 
+// IsUpstreamQuotaError recognizes balance and billing failures returned by a
+// selected upstream channel. It must not be used for local billing errors.
+func IsUpstreamQuotaError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(string(err.GetErrorCode())))
+	if slices.Contains(upstreamQuotaErrorCodes, code) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return slices.ContainsFunc(upstreamQuotaErrorPhrases, func(phrase string) bool {
+		return strings.Contains(message, phrase)
+	})
+}
+
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
 	if err == nil {
 		return
@@ -116,6 +207,24 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	upstreamURLs := common.UpstreamAddresses(c)
 	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
 	if channelError.ChannelId > 0 {
+		quotaAlertKey := fmt.Sprintf("%s%d", upstreamQuotaAlertContextKeyPrefix, channelError.ChannelId)
+		if !c.GetBool(quotaAlertKey) && IsUpstreamQuotaError(err) {
+			c.Set(quotaAlertKey, true)
+			errorCode := string(err.GetErrorCode())
+			if errorCode == "" {
+				errorCode = "unknown"
+			}
+			params := map[string]any{
+				"Name": channelError.ChannelName, "Id": channelError.ChannelId,
+				"ErrorCode": errorCode, "StatusCode": err.StatusCode,
+				"Error": common.LocalLogPreview(err.MaskSensitiveError(upstreamURLs...)),
+			}
+			gopool.Go(func() {
+				NotifyChannelErrorWatchers(fmt.Sprintf("channel_upstream_quota_%d", channelError.ChannelId), func(lang string) (string, string) {
+					return i18n.Translate(lang, i18n.MsgChannelUpstreamQuotaSubject, params), i18n.Translate(lang, i18n.MsgChannelUpstreamQuotaContent, params)
+				})
+			})
+		}
 		threshold := operation_setting.GetMonitorSetting().ChannelErrorAlertThreshold
 		if count, shouldNotify := channelErrorAlerts.record(channelError.ChannelId, time.Now(), threshold); shouldNotify {
 			errorCode := string(err.GetErrorCode())

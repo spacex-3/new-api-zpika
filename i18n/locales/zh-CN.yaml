@@ -83,6 +83,8 @@ channel.notify_enabled_subject: "通道「{{.Name}}」（#{{.Id}}）已被启用
 channel.notify_enabled_content: "通道「{{.Name}}」（#{{.Id}}）已被启用"
 channel.error_burst_subject: "渠道高频错误告警"
 channel.error_burst_content: "渠道「{{.Name}}」（#{{.Id}}）最近一分钟累计报错 {{.Count}} 次。本次错误代码：{{.ErrorCode}}；HTTP 状态码：{{.StatusCode}}。"
+channel.upstream_quota_subject: "上游余额不足告警"
+channel.upstream_quota_content: "渠道「{{.Name}}」（#{{.Id}}）返回上游余额或额度不足错误。HTTP 状态码：{{.StatusCode}}；错误代码：{{.ErrorCode}}；错误：{{.Error}}"
 channel.test_completed_subject: "通道测试完成"
 channel.test_completed_content: "所有通道测试已完成"
 channel.response_time_exceeded: "响应时间 {{.Seconds}}s 超过阈值 {{.Threshold}}s"
