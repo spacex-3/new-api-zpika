@@ -190,6 +190,35 @@ func TestTaskModel2DtoNormalizesLegacyAction(t *testing.T) {
 	assert.Equal(t, "firstTailGenerate", task.Action)
 }
 
+func TestVideoFetchMasksUpstreamQuotaFailureSnapshot(t *testing.T) {
+	database := setupRelayChannelDB(t)
+	require.NoError(t, database.AutoMigrate(&model.Task{}))
+	require.NoError(t, i18n.Init())
+	rawReason := "Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required"
+	task := &model.Task{
+		TaskID:     "task_quota_failure",
+		UserId:     7,
+		Status:     model.TaskStatusFailure,
+		FailReason: rawReason,
+		Data:       []byte(`{"error":{"message":"Not enough quota to pre-consume","remaining":1.00,"required":1.35}}`),
+	}
+	require.NoError(t, database.Create(task).Error)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/video/generations/task_quota_failure", nil)
+	c.Request.Header.Set("Accept-Language", "en")
+	c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	c.Set("id", task.UserId)
+
+	body, taskErr := videoFetchByIDRespBodyBuilder(c)
+
+	require.Nil(t, taskErr)
+	assert.Contains(t, string(body), "Upstream service is temporarily unavailable")
+	assert.NotContains(t, string(body), rawReason)
+	assert.NotContains(t, string(body), "remaining")
+	assert.Contains(t, string(body), `"data":null`)
+}
+
 const mappingOrderSubmitPlugin = `
 export const meta = {apiVersion:1,key:"maporder",name:"Map Order",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"};
 export function buildSubmitRequest(ctx) {

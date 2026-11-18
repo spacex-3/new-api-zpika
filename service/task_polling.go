@@ -298,6 +298,13 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		common.SysLog(common.LogText("Get Suno Task parse body error: %v", err))
 		return recordPollFailureForTasks(ctx, adaptor, tasks, pollClassTransport, resp.StatusCode, err.Error())
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		quotaReason := strings.TrimSpace(string(responseBody))
+		if _, quotaFailure := PublicTaskFailureReason(quotaReason, ""); quotaFailure {
+			logger.LogWarn(ctx, common.LogText("task batch poll received upstream quota failure channel_id=%d http=%d", channelId, resp.StatusCode))
+			return failTasksFromPoll(ctx, adaptor, tasks, quotaReason)
+		}
+	}
 	switch classifyPollHTTP(resp.StatusCode) {
 	case pollClassNotFound:
 		for _, task := range tasks {
@@ -519,6 +526,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		quotaReason := strings.TrimSpace(string(responseBody))
+		if _, quotaFailure := PublicTaskFailureReason(quotaReason, ""); quotaFailure {
+			logger.LogWarn(ctx, common.LogText("task %s poll received upstream quota failure channel_id=%d http=%d", task.TaskID, ch.Id, resp.StatusCode))
+			return failTaskFromPoll(ctx, adaptor, task, snap.Status, quotaReason)
+		}
+	}
 
 	switch classifyPollHTTP(resp.StatusCode) {
 	case pollClassNotFound:
@@ -643,6 +657,9 @@ func finalizeTerminalTask(ctx context.Context, adaptor TaskPollingAdaptor, task 
 	billingSettled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 	if task.Status == model.TaskStatusFailure && !billingSettled && task.Quota != 0 {
 		RefundTaskQuota(ctx, task, task.FailReason)
+	}
+	if task.Status == model.TaskStatusFailure {
+		NotifyTaskUpstreamQuotaFailure(task)
 	}
 	if task.Status == model.TaskStatusSuccess {
 		if provider, ok := adaptor.(TaskArtifactPersistenceProvider); ok {

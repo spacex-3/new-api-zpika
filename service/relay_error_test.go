@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -110,6 +111,50 @@ func TestIsUpstreamQuotaError(t *testing.T) {
 		})
 	}
 	assert.False(t, IsUpstreamQuotaError(nil))
+	local := types.NewErrorWithStatusCode(
+		errors.New("Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required"),
+		types.ErrorCodeInsufficientUserQuota,
+		http.StatusForbidden,
+	)
+	assert.False(t, IsUpstreamQuotaError(local), "gateway billing errors must not be attributed to the selected channel")
+	localPreConsume := types.NewErrorWithStatusCode(
+		errors.New("failed to pre-consume token quota"),
+		types.ErrorCodePreConsumeTokenQuotaFailed,
+		http.StatusForbidden,
+	)
+	assert.False(t, IsUpstreamQuotaError(localPreConsume))
+	upstreamRawCode := types.NewOpenAIError(
+		errors.New(`{"error":{"code":"quota_exceeded","message":"request rejected"}}`),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+	assert.True(t, IsUpstreamQuotaError(upstreamRawCode), "task error bodies can carry the quota code inside JSON")
+}
+
+func TestProcessChannelErrorIgnoresLocalQuotaError(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	local := types.NewErrorWithStatusCode(
+		errors.New("Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required"),
+		types.ErrorCodeInsufficientUserQuota,
+		http.StatusForbidden,
+	)
+
+	ProcessChannelError(c, types.ChannelError{ChannelId: 117, ChannelName: "selected-upstream", AutoBan: true}, local, nil)
+
+	assert.Same(t, local, PublicUpstreamQuotaError(c, local))
+	_, marked := c.Get(upstreamQuotaErrorContextKey)
+	assert.False(t, marked)
+}
+
+func TestPublicTaskFailureReasonMasksOnlyUpstreamQuota(t *testing.T) {
+	raw := "预扣费额度失败, 用户剩余额度: 0, 需要预扣费额度: 1"
+	public, masked := PublicTaskFailureReason(raw, i18n.LangEn)
+	assert.True(t, masked)
+	assert.Equal(t, "Upstream service is temporarily unavailable. Please try again later.", public)
+
+	public, masked = PublicTaskFailureReason("content policy rejected", i18n.LangEn)
+	assert.False(t, masked)
+	assert.Equal(t, "content policy rejected", public)
 }
 
 func TestPublicUpstreamQuotaErrorPreservesInternalError(t *testing.T) {
@@ -243,7 +288,7 @@ func TestProcessChannelErrorSendsIndependentQuotaAndThresholdAlerts(t *testing.T
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	require.NoError(t, database.AutoMigrate(&model.User{}))
+	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Channel{}))
 	model.DB = database
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.MemoryCacheEnabled, common.RedisEnabled = false, false
@@ -266,21 +311,28 @@ func TestProcessChannelErrorSendsIndependentQuotaAndThresholdAlerts(t *testing.T
 	root := &model.User{Username: "burst-notification-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Setting: string(settings)}
 	require.NoError(t, database.Create(root).Error)
 
-	const channelID, retryChannelID = 77, 78
+	const channelID, retryChannelID, taskQuotaChannelID = 77, 78, 79
+	require.NoError(t, database.Create(&model.Channel{
+		Id: taskQuotaChannelID, Name: "async-video", Key: "unused", Type: 1,
+		Status: common.ChannelStatusEnabled, Group: "default", Models: "test-model",
+	}).Error)
 	channelErrorAlerts.reset(channelID)
 	channelErrorAlerts.reset(retryChannelID)
 	burstNotifyKey := fmt.Sprintf("%d:channel_error_%d", root.Id, channelID)
 	quotaNotifyKey := fmt.Sprintf("%d:channel_upstream_quota_%d", root.Id, channelID)
 	retryQuotaNotifyKey := fmt.Sprintf("%d:channel_upstream_quota_%d", root.Id, retryChannelID)
+	taskQuotaNotifyKey := fmt.Sprintf("%d:channel_upstream_quota_%d", root.Id, taskQuotaChannelID)
 	notifyLimitStore.Delete(burstNotifyKey)
 	notifyLimitStore.Delete(quotaNotifyKey)
 	notifyLimitStore.Delete(retryQuotaNotifyKey)
+	notifyLimitStore.Delete(taskQuotaNotifyKey)
 	t.Cleanup(func() {
 		channelErrorAlerts.reset(channelID)
 		channelErrorAlerts.reset(retryChannelID)
 		notifyLimitStore.Delete(burstNotifyKey)
 		notifyLimitStore.Delete(quotaNotifyKey)
 		notifyLimitStore.Delete(retryQuotaNotifyKey)
+		notifyLimitStore.Delete(taskQuotaNotifyKey)
 	})
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "https://private.example.com")
@@ -294,6 +346,10 @@ func TestProcessChannelErrorSendsIndependentQuotaAndThresholdAlerts(t *testing.T
 	ProcessChannelError(c, channelError, quotaErr, nil)
 	ProcessChannelError(c, channelError, quotaErr, nil)
 	ProcessChannelError(c, types.ChannelError{ChannelId: retryChannelID, ChannelName: "edge-tokyo"}, quotaErr, nil)
+	NotifyTaskUpstreamQuotaFailure(&model.Task{
+		TaskID: "task-public-79", ChannelId: taskQuotaChannelID,
+		Status: model.TaskStatusFailure, FailReason: "Not enough quota to pre-consume: $0 remaining, $1 required",
+	})
 	for range 2 {
 		ProcessChannelError(c, channelError, apiErr, nil)
 	}
@@ -304,7 +360,7 @@ func TestProcessChannelErrorSendsIndependentQuotaAndThresholdAlerts(t *testing.T
 
 	received := make(map[string]WebhookPayload)
 	deadline := time.After(5 * time.Second)
-	for len(received) < 3 {
+	for len(received) < 4 {
 		select {
 		case notification := <-notifications:
 			received[notification.Type] = notification
@@ -325,6 +381,11 @@ func TestProcessChannelErrorSendsIndependentQuotaAndThresholdAlerts(t *testing.T
 	retryQuotaNotification, ok := received[fmt.Sprintf("channel_upstream_quota_%d", retryChannelID)]
 	require.True(t, ok)
 	assert.Contains(t, retryQuotaNotification.Content, `Channel "edge-tokyo" (#78)`)
+	taskQuotaNotification, ok := received[fmt.Sprintf("channel_upstream_quota_%d", taskQuotaChannelID)]
+	require.True(t, ok)
+	assert.Contains(t, taskQuotaNotification.Content, `Channel "async-video" (#79)`)
+	assert.Contains(t, taskQuotaNotification.Content, "task-public-79")
+	assert.Contains(t, taskQuotaNotification.Content, "Not enough quota to pre-consume")
 
 	burstNotification, ok := received[fmt.Sprintf("channel_error_%d", channelID)]
 	require.True(t, ok)

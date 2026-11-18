@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -117,11 +118,10 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 		}
 		// The fail reason comes from the upstream, so mask the channel address in it.
 		taskErr = service.TaskErrorWrapper(errors.New(reason), "image_generation_failed", http.StatusBadRequest, common.UpstreamAddresses(c)...)
-		taskErr.LocalError = true
 		respondTaskPluginImageError(c, taskErr)
 		return
 	}
-	view, err := service.BuildTaskPluginView(task)
+	view, err := service.BuildTaskPluginView(task, i18n.StatedLang(c))
 	if err != nil {
 		logger.LogError(c, common.LogText("build task protocol view failed: %s", err.Error()))
 		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")

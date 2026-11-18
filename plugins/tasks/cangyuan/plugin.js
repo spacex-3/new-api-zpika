@@ -59,12 +59,12 @@ const PER_IMAGE_MODELS = [
 export const meta = {
   apiVersion: 1,
   key: "cangyuan",
-  name: "Cangyuan New API",
+  name: "渠道 1",
   description: {
     en: "Asynchronous image, video, music, and 3D tasks through a Cangyuan New API upstream",
     zh: "通过沧元 New API 上游调用异步图片、视频、音乐和 3D 任务",
   },
-  version: "1.1.1",
+  version: "1.1.2",
   author: { name: "QuantumNous" },
   models: IMAGE_MODELS.concat(VIDEO_MODELS, MUSIC_MODELS, THREED_MODELS),
   fetchMode: "per_task",

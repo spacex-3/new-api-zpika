@@ -159,7 +159,7 @@ func TestCangyuanMiniMaxH3ResolutionValidation(t *testing.T) {
 	require.NoError(t, err)
 	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "cangyuan"})
 	require.NoError(t, err)
-	assert.Equal(t, "1.1.1", plugin.Meta.Version)
+	assert.Equal(t, "1.1.2", plugin.Meta.Version)
 	assert.Contains(t, plugin.Meta.Models, "MiniMax-H3")
 	usageSchema, _ := plugin.Meta.UsageForModel("MiniMax-H3")
 	assert.Equal(t, []string{"768P", "2K"}, usageSchema["resolution"].Enum)

@@ -8,22 +8,37 @@ import (
 
 // BuildTaskPluginView converts a persisted task into the deliberately narrow
 // public shape permitted at JavaScript plugin boundaries.
-func BuildTaskPluginView(task *model.Task) (dto.TaskView, error) {
+func BuildTaskPluginView(task *model.Task, language ...string) (dto.TaskView, error) {
 	createdAt := task.CreatedAt
 	if createdAt == 0 {
 		createdAt = task.SubmitTime
+	}
+	failReason := task.FailReason
+	publicQuotaFailure := false
+	lang := ""
+	if len(language) > 0 {
+		lang = language[0]
+	}
+	if task.Status == model.TaskStatusFailure {
+		failReason, publicQuotaFailure = PublicTaskFailureReason(task.FailReason, lang)
 	}
 	view := dto.TaskView{
 		TaskID:     task.TaskID,
 		Platform:   string(task.Platform),
 		Status:     string(task.Status),
 		Progress:   task.Progress,
-		FailReason: task.FailReason,
+		FailReason: failReason,
 		CreatedAt:  createdAt,
 		UpdatedAt:  task.UpdatedAt,
 		FinishedAt: task.FinishTime,
 	}
 	if len(task.Data) > 0 {
+		// A failed upstream snapshot can repeat balance details outside
+		// fail_reason. Do not expose any of that snapshot at plugin presentation
+		// boundaries; administrators still read the untouched task row.
+		if publicQuotaFailure {
+			return view, nil
+		}
 		if err := common.Unmarshal(task.Data, &view.Data); err != nil {
 			return dto.TaskView{}, err
 		}

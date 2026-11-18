@@ -135,3 +135,23 @@ func TestTaskLogDTOKeepsFailureReasonAndDoesNotMarkPluginTaskLegacy(t *testing.T
 	assert.Empty(t, pluginView.ResultURL)
 	assert.Empty(t, pluginView.FailReason)
 }
+
+func TestTaskLogDTOSeparatesQuotaFailureForUsersAndAdmins(t *testing.T) {
+	rawReason := "Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required"
+	rawData := []byte(`{"error":{"message":"Not enough quota to pre-consume","remaining":1.00,"required":1.35}}`)
+	task := &model.Task{
+		TaskID:     "task_quota_failure",
+		Status:     model.TaskStatusFailure,
+		FailReason: rawReason,
+		Data:       rawData,
+	}
+
+	userView := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser, "en")[0]
+	assert.Equal(t, "Upstream service is temporarily unavailable. Please try again later.", userView.FailReason)
+	assert.Empty(t, userView.ResultURL)
+	assert.Nil(t, userView.Data)
+
+	adminView := tasksToDto([]*model.Task{task}, false, common.RoleAdminUser, "en")[0]
+	assert.Equal(t, rawReason, adminView.FailReason)
+	assert.Equal(t, rawData, []byte(adminView.Data))
+}

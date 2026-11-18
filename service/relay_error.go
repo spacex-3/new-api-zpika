@@ -198,13 +198,77 @@ func IsUpstreamQuotaError(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
+	if isLocalQuotaError(err) {
+		return false
+	}
 	code := strings.ToLower(strings.TrimSpace(string(err.GetErrorCode())))
 	if slices.Contains(upstreamQuotaErrorCodes, code) {
 		return true
 	}
 	message := strings.ToLower(err.Error())
+	if slices.ContainsFunc(upstreamQuotaErrorCodes, func(code string) bool {
+		return strings.Contains(message, code)
+	}) {
+		return true
+	}
 	return slices.ContainsFunc(upstreamQuotaErrorPhrases, func(phrase string) bool {
 		return strings.Contains(message, phrase)
+	})
+}
+
+func isLocalQuotaError(err *types.NewAPIError) bool {
+	if err == nil || err.GetErrorType() != types.ErrorTypeNewAPIError {
+		return false
+	}
+	code := err.GetErrorCode()
+	return code == types.ErrorCodeInsufficientUserQuota || code == types.ErrorCodePreConsumeTokenQuotaFailed
+}
+
+// PublicTaskFailureReason returns the stable client-facing message for an
+// upstream quota failure persisted on an asynchronous task. The caller keeps
+// the original task row and uses this value only for a public projection.
+func PublicTaskFailureReason(reason, lang string) (string, bool) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return reason, false
+	}
+	apiErr := types.NewOpenAIError(errors.New(reason), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
+	if !IsUpstreamQuotaError(apiErr) {
+		return reason, false
+	}
+	return i18n.Translate(lang, i18n.MsgRelayUpstreamUnavailable), true
+}
+
+// NotifyTaskUpstreamQuotaFailure alerts administrators after a durable task
+// reaches FAILURE with an upstream quota reason. Callers invoke this only
+// after winning the terminal-state persistence barrier, so one task alerts at
+// most once per process path.
+func NotifyTaskUpstreamQuotaFailure(task *model.Task) {
+	if task == nil || task.ChannelId <= 0 {
+		return
+	}
+	if _, ok := PublicTaskFailureReason(task.FailReason, i18n.LangEn); !ok {
+		return
+	}
+	channelID := task.ChannelId
+	taskID := task.TaskID
+	reason := task.FailReason
+	gopool.Go(func() {
+		channelName := "unknown"
+		upstreamURLs := []string(nil)
+		if channel, err := model.CacheGetChannel(channelID); err == nil {
+			channelName = channel.Name
+			upstreamURLs = append(upstreamURLs, channel.GetBaseURL())
+		} else {
+			common.SysError(common.LogText("failed to load channel #%d for task upstream quota alert: %v", channelID, err))
+		}
+		params := map[string]any{
+			"Name": channelName, "Id": channelID, "TaskId": taskID,
+			"Error": common.LocalLogPreview(common.MaskSensitiveInfo(reason, upstreamURLs...)),
+		}
+		NotifyChannelErrorWatchers(fmt.Sprintf("channel_upstream_quota_%d", channelID), func(lang string) (string, string) {
+			return i18n.Translate(lang, i18n.MsgChannelUpstreamQuotaSubject, params), i18n.Translate(lang, i18n.MsgChannelTaskUpstreamQuotaContent, params)
+		})
 	})
 }
 
@@ -252,6 +316,9 @@ func PublicUpstreamQuotaTaskError(c *gin.Context, taskErr *taskdto.TaskError) *t
 
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
 	if err == nil {
+		return
+	}
+	if isLocalQuotaError(err) {
 		return
 	}
 	upstreamURLs := common.UpstreamAddresses(c)

@@ -881,6 +881,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 	testCases := []struct {
 		name          string
 		statusCode    int
+		body          []byte
 		fetchErr      error
 		parse         *relaycommon.TaskInfo
 		parseErr      error
@@ -908,6 +909,14 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 			wantStatus:    model.TaskStatusInProgress,
 			wantFailures:  1,
 			wantUnchanged: true,
+		},
+		{
+			name:       "403 upstream quota failure fails immediately and refunds",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"code":"insufficient_user_quota","message":"Not enough quota to pre-consume for this request"}}`),
+			wantStatus: model.TaskStatusFailure,
+			wantRefund: true,
+			wantReason: `{"error":{"code":"insufficient_user_quota","message":"Not enough quota to pre-consume for this request"}}`,
 		},
 		{
 			name:          "429 reaches threshold and refunds",
@@ -988,7 +997,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 			}
 			require.NoError(t, model.DB.Create(task).Error)
 
-			adaptor := &scriptedPollingAdaptor{statusCode: testCase.statusCode, fetchErr: testCase.fetchErr, parse: testCase.parse, parseErr: testCase.parseErr}
+			adaptor := &scriptedPollingAdaptor{statusCode: testCase.statusCode, body: testCase.body, fetchErr: testCase.fetchErr, parse: testCase.parse, parseErr: testCase.parseErr}
 			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, ch, task.GetUpstreamTaskID(), map[string]*model.Task{
 				task.GetUpstreamTaskID(): task,
 			}))
@@ -1025,6 +1034,7 @@ func TestUpdateBatchTasksPollClassification(t *testing.T) {
 	testCases := []struct {
 		name         string
 		statusCode   int
+		body         []byte
 		resultStatus model.TaskStatus
 		wantStatus   model.TaskStatus
 		wantFailures int
@@ -1043,6 +1053,14 @@ func TestUpdateBatchTasksPollClassification(t *testing.T) {
 			statusCode:   http.StatusUnauthorized,
 			wantStatus:   model.TaskStatusInProgress,
 			wantFailures: 1,
+		},
+		{
+			name:       "403 upstream quota failure fails batch immediately and refunds",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"code":"billing_not_active","message":"billing is not active"}}`),
+			wantStatus: model.TaskStatusFailure,
+			wantRefund: true,
+			wantReason: `{"error":{"code":"billing_not_active","message":"billing is not active"}}`,
 		},
 		{
 			name:         "UNKNOWN increments",
@@ -1068,7 +1086,7 @@ func TestUpdateBatchTasksPollClassification(t *testing.T) {
 			upstreamID := task.GetUpstreamTaskID()
 
 			adaptor := &scriptedBatchPollingAdaptor{
-				scriptedPollingAdaptor: scriptedPollingAdaptor{statusCode: testCase.statusCode},
+				scriptedPollingAdaptor: scriptedPollingAdaptor{statusCode: testCase.statusCode, body: testCase.body},
 			}
 			if testCase.resultStatus != "" {
 				adaptor.results = map[string]*BatchTaskResult{

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -53,6 +54,8 @@ func GetTask(c *gin.Context) {
 	failReason := task.FailReason
 	if task.Status == model.TaskStatusSuccess && taskFailReasonIsLegacyResultURL(task.FailReason) {
 		failReason = ""
+	} else if task.Status == model.TaskStatusFailure {
+		failReason, _ = service.PublicTaskFailureReason(task.FailReason, i18n.StatedLang(c))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":     task.TaskID,
@@ -457,7 +460,7 @@ func GetAllTask(c *gin.Context) {
 	queryParams := model.SyncTaskQueryParams{Platform: constant.TaskPlatform(c.Query("platform")), TaskID: c.Query("task_id"), Status: c.Query("status"), Action: c.Query("action"), StartTimestamp: startTimestamp, EndTimestamp: endTimestamp, ChannelID: c.Query("channel_id")}
 	items := model.TaskGetAllTasks(pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
 	pageInfo.SetTotal(int(model.TaskCountAllTasks(queryParams)))
-	pageInfo.SetItems(tasksToDto(items, true, c.GetInt("role")))
+	pageInfo.SetItems(tasksToDto(items, true, c.GetInt("role"), i18n.StatedLang(c)))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -469,11 +472,15 @@ func GetUserTask(c *gin.Context) {
 	queryParams := model.SyncTaskQueryParams{Platform: constant.TaskPlatform(c.Query("platform")), TaskID: c.Query("task_id"), Status: c.Query("status"), Action: c.Query("action"), StartTimestamp: startTimestamp, EndTimestamp: endTimestamp}
 	items := model.TaskGetAllUserTask(userID, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
 	pageInfo.SetTotal(int(model.TaskCountAllUserTask(userID, queryParams)))
-	pageInfo.SetItems(tasksToDto(items, false, common.RoleCommonUser))
+	pageInfo.SetItems(tasksToDto(items, false, common.RoleCommonUser, i18n.StatedLang(c)))
 	common.ApiSuccess(c, pageInfo)
 }
 
-func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskDto {
+func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int, language ...string) []*dto.TaskDto {
+	lang := ""
+	if len(language) > 0 {
+		lang = language[0]
+	}
 	var userIDMap map[int]*model.UserBase
 	if fillUser {
 		userIDMap = make(map[int]*model.UserBase)
@@ -501,6 +508,13 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 			item.ResultURL = ""
 			if taskFailReasonIsLegacyResultURL(task.FailReason) {
 				item.FailReason = ""
+			}
+		}
+		if viewerRole < common.RoleAdminUser && task.Status == model.TaskStatusFailure {
+			if publicReason, quotaFailure := service.PublicTaskFailureReason(task.FailReason, lang); quotaFailure {
+				item.FailReason = publicReason
+				item.ResultURL = ""
+				item.Data = nil
 			}
 		}
 		if viewerRole >= common.RoleAdminUser {

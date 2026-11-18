@@ -108,3 +108,20 @@ func TestBuildTaskPluginViewEncodesKeysInMapOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(reencoded), string(encoded))
 }
+
+func TestBuildTaskPluginViewMasksQuotaFailureAndDropsUpstreamSnapshot(t *testing.T) {
+	rawReason := "Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required"
+	task := &model.Task{
+		TaskID:     "task_quota_failure",
+		Status:     model.TaskStatusFailure,
+		FailReason: rawReason,
+		Data:       []byte(`{"error":{"message":"Not enough quota to pre-consume","remaining":1.00,"required":1.35}}`),
+	}
+
+	view, err := BuildTaskPluginView(task, "en")
+	require.NoError(t, err)
+	assert.Equal(t, "Upstream service is temporarily unavailable. Please try again later.", view.FailReason)
+	assert.Nil(t, view.Data)
+	assert.Equal(t, rawReason, task.FailReason)
+	assert.NotEmpty(t, task.Data)
+}

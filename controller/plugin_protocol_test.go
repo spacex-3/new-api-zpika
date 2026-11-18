@@ -1791,16 +1791,20 @@ export function buildQueryRequest(){return {url:"https://provider.example"};}`,
 // terminal; a failure and the protocol timeout become OpenAI error envelopes
 // while the durable task stays with the background poller.
 func TestServeTaskPluginImageProtocolWaitsForAsynchronousTask(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	for _, tc := range []struct {
 		name        string
 		terminal    model.TaskStatus
+		failReason  string
 		wantStatus  int
 		wantCode    string
+		wantType    string
 		wantMessage string
 	}{
-		{"success", model.TaskStatusSuccess, http.StatusOK, "", ""},
-		{"failure", model.TaskStatusFailure, http.StatusBadRequest, "image_generation_failed", "DataInspectionFailed"},
-		{"timeout", "", http.StatusGatewayTimeout, "task_timeout", "still running"},
+		{"success", model.TaskStatusSuccess, "", http.StatusOK, "", "", ""},
+		{"failure", model.TaskStatusFailure, "DataInspectionFailed: see https://private.example.com/jobs/1", http.StatusBadRequest, "image_generation_failed", "", "DataInspectionFailed"},
+		{"upstream quota failure", model.TaskStatusFailure, "Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required", http.StatusServiceUnavailable, "upstream_unavailable", "upstream_error", "Upstream service is temporarily unavailable"},
+		{"timeout", "", "", http.StatusGatewayTimeout, "task_timeout", "", "still running"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pinned := imageProtocolTestEndpoint(t)
@@ -1819,7 +1823,7 @@ func TestServeTaskPluginImageProtocolWaitsForAsynchronousTask(t *testing.T) {
 					return nil
 				}
 				task.Status = tc.terminal
-				task.FailReason = "DataInspectionFailed: see https://private.example.com/jobs/1"
+				task.FailReason = tc.failReason
 				task.SetData(map[string]any{"images": []string{"https://cdn.example/polled.png"}})
 				return nil
 			}
@@ -1837,6 +1841,9 @@ func TestServeTaskPluginImageProtocolWaitsForAsynchronousTask(t *testing.T) {
 			}
 			errorBody := response["error"].(map[string]any)
 			assert.Equal(t, tc.wantCode, errorBody["code"])
+			if tc.wantType != "" {
+				assert.Equal(t, tc.wantType, errorBody["type"])
+			}
 			assert.Contains(t, errorBody["message"], tc.wantMessage)
 			assert.NotContains(t, errorBody["message"], "private.example.com")
 		})

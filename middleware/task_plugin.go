@@ -1436,7 +1436,7 @@ func renderTaskPluginQuery(
 			abortTaskPluginRouteError(c, http.StatusNotFound)
 			return
 		}
-		view, viewErr := service.BuildTaskPluginView(task)
+		view, viewErr := service.BuildTaskPluginView(task, i18n.StatedLang(c))
 		if viewErr != nil {
 			abortTaskPluginRouteError(c, http.StatusInternalServerError)
 			return
@@ -1585,6 +1585,14 @@ func RespondTaskPluginError(c *gin.Context, taskErr *dto.TaskError) bool {
 		return false
 	}
 	sanitized := sanitizedTaskPluginError(taskErr.StatusCode, taskErr.Message)
+	if taskErr.Code == string(service.UpstreamUnavailableErrorCode) && taskErr.StatusCode == http.StatusServiceUnavailable {
+		sanitized = dto.TaskPluginError{
+			Code:       taskErr.Code,
+			Message:    taskErr.Message,
+			HTTPStatus: taskErr.StatusCode,
+			Retryable:  true,
+		}
+	}
 	requestID := c.GetString(common.RequestIdKey)
 	hasRenderer, err := pinned.Plugin.Engine.HasCallablePath(c.Request.Context(), "native", "error")
 	requestValue, exists := c.Get(pluginruntime.ContextKeyRouteRequest)

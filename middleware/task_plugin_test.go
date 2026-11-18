@@ -1449,6 +1449,43 @@ export const native = {error: function(ctx, error) {
 	assert.NotContains(t, recorder.Body.String(), "password")
 }
 
+func TestRespondTaskPluginErrorPreservesPublicUpstreamUnavailable(t *testing.T) {
+	plugin := compileTaskRoutePlugin(t, `
+export const meta = {
+  apiVersion: 1, key: "route-quota-test", name: "Error", version: "1.0.0",
+  author: {name: "Test"}, models: ["error-model"], fetchMode: "per_task",
+};
+export function buildSubmitRequest() { return {url: "https://example.com"}; }
+export function parseSubmitResponse() { return {taskId: "one"}; }
+export function buildQueryRequest() { return {url: "https://example.com"}; }
+export function parseTaskResult() { return {status: "SUCCESS"}; }
+export const native = {error: function(ctx, error) { return error; }};
+`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/vendor/failure", nil)
+	c.Set(jsplugin.ContextKeyPinnedRoute, jsplugin.PinnedRoute{Plugin: plugin})
+	c.Set(jsplugin.ContextKeyRouteRequest, jsplugin.RouteRequestContext{
+		Path: "/vendor/failure", Method: http.MethodPost, Params: map[string]string{}, Query: map[string][]string{},
+	})
+
+	handled := RespondTaskPluginError(c, &dto.TaskError{
+		Code:       string(service.UpstreamUnavailableErrorCode),
+		Message:    "Upstream service is temporarily unavailable. Please try again later.",
+		StatusCode: http.StatusServiceUnavailable,
+	})
+
+	assert.True(t, handled)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.JSONEq(t, `{
+	  "code": "upstream_unavailable",
+	  "message": "Upstream service is temporarily unavailable. Please try again later.",
+	  "httpStatus": 503,
+	  "retryable": true,
+	  "requestId": ""
+	}`, recorder.Body.String())
+}
+
 func TestTaskPluginErrorFallbackIsSanitized(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string

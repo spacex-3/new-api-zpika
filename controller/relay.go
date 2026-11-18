@@ -760,6 +760,9 @@ func executeTaskSubmissionWith(
 		policy.AddEvent(service.PolicyEvent{Decision: service.PolicyDecision{Action: "stop", Reason: "task_failed", Source: "upstream"}})
 	}
 	service.LogTaskConsumption(c, relayInfo, task)
+	if task.Status == model.TaskStatusFailure {
+		service.NotifyTaskUpstreamQuotaFailure(task)
+	}
 	diagnostics.complete(task, result.Quota)
 
 	return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil
@@ -772,6 +775,17 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 		diagnostics.present(outcome.Task, "native_stream")
 		return
 	}
+	if outcome.Task.Status == model.TaskStatusFailure {
+		if _, quotaFailure := service.PublicTaskFailureReason(outcome.Task.FailReason, i18n.StatedLang(c)); quotaFailure {
+			respondTaskSubmissionError(c, service.TaskErrorWrapper(
+				errors.New(outcome.Task.FailReason),
+				"task_failed",
+				http.StatusBadGateway,
+				common.UpstreamAddresses(c)...,
+			))
+			return
+		}
+	}
 	otherRatios := outcome.RelayInfo.PriceData.OtherRatios()
 	if otherRatios == nil {
 		otherRatios = map[string]float64{}
@@ -781,7 +795,7 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 	}
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedRoute); exists {
 		if pinned, ok := pinnedValue.(pluginruntime.PinnedRoute); ok && pinned.Plugin != nil && pinned.Route.Render != "" {
-			view, err := service.BuildTaskPluginView(outcome.Task)
+			view, err := service.BuildTaskPluginView(outcome.Task, i18n.StatedLang(c))
 			requestValue, _ := c.Get(pluginruntime.ContextKeyRouteRequest)
 			requestContext, _ := requestValue.(pluginruntime.RouteRequestContext)
 			if err == nil {
