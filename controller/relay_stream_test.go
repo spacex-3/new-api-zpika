@@ -299,6 +299,30 @@ func TestRelayStreamErrorAfterKeepAlive(t *testing.T) {
 			}
 		})
 	}
+
+	for _, format := range []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatOpenAI} {
+		t.Run(string(format)+" upstream quota", func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/stream", nil)
+			helper.SetEventStreamHeaders(c)
+			require.NoError(t, helper.PingData(c))
+			apiError := types.NewUpstreamError(
+				errors.New("Upstream service is temporarily unavailable. Please try again later."),
+				service.UpstreamUnavailableErrorCode,
+				http.StatusServiceUnavailable,
+			)
+			writeRelayStreamError(c, format, apiError)
+
+			require.Equal(t, http.StatusOK, recorder.Code, "SSE headers were already committed")
+			assert.Contains(t, recorder.Body.String(), "Upstream service is temporarily unavailable")
+			assert.Contains(t, recorder.Body.String(), "upstream_error")
+			assert.NotContains(t, recorder.Body.String(), "insufficient")
+			status, ok := common.GetContextKeyType[*relaycommon.StreamStatus](c, constant.ContextKeyResponseStreamStatus)
+			require.True(t, ok)
+			assert.Equal(t, http.StatusServiceUnavailable, status.OutcomeSnapshot().ErrorStatus)
+		})
+	}
 }
 
 func TestStreamKeepAliveCancellation(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
@@ -1860,6 +1861,45 @@ func TestServeTaskPluginImageProtocolSubmissionErrorUsesOpenAIEnvelope(t *testin
 	assert.Equal(t, "invalid_request_error", errorBody["type"])
 	assert.Contains(t, errorBody["message"], "n must be 1")
 	assert.NotContains(t, errorBody["message"], "request_id")
+}
+
+func TestServeTaskPluginImageProtocolMasksUpstreamQuotaError(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	pinned := imageProtocolTestEndpoint(t)
+	c, recorder := newImageProtocolTestContext("")
+	c.Request.Header.Set("Accept-Language", "en")
+	deps := pluginProtocolTestDeps()
+	deps.submit = func(*gin.Context, *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		return nil, &dto.TaskError{
+			Code:       "bad_response_status_code",
+			Message:    "预扣费额度失败, 用户剩余额度: 0",
+			StatusCode: http.StatusForbidden,
+		}
+	}
+	serveTaskPluginImageProtocol(c, pinned, deps)
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	errorBody := response["error"].(map[string]any)
+	assert.Equal(t, "upstream_unavailable", errorBody["code"])
+	assert.Equal(t, "upstream_error", errorBody["type"])
+	assert.Contains(t, errorBody["message"], "Upstream service is temporarily unavailable. Please try again later.")
+	assert.NotContains(t, recorder.Body.String(), "预扣费额度失败")
+
+	c, recorder = newImageProtocolTestContext("")
+	deps = pluginProtocolTestDeps()
+	deps.submit = func(*gin.Context, *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		return nil, &dto.TaskError{
+			Code:       "insufficient_user_quota",
+			Message:    "用户额度不足",
+			StatusCode: http.StatusForbidden,
+			LocalError: true,
+		}
+	}
+	serveTaskPluginImageProtocol(c, pinned, deps)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "用户额度不足")
 }
 
 // A synchronous image submission is billable the moment DashScope accepts it.

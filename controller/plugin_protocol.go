@@ -1234,9 +1234,14 @@ func writeTaskPluginProtocolEvent(c *gin.Context, event dto.PluginResponsesStrea
 }
 
 func respondPluginProtocolSubmissionError(c *gin.Context, taskErr *dto.TaskError) {
+	taskErr = service.PublicUpstreamQuotaTaskError(c, taskErr)
 	status := http.StatusInternalServerError
 	if taskErr != nil && taskErr.StatusCode >= 400 && taskErr.StatusCode <= 599 {
 		status = taskErr.StatusCode
+	}
+	if taskErr != nil && taskErr.Code == string(service.UpstreamUnavailableErrorCode) {
+		respondPluginProtocolError(c, status, taskErr.Code, taskErr.Message)
+		return
 	}
 	switch status {
 	case http.StatusBadRequest:
@@ -1257,10 +1262,14 @@ func respondPluginProtocolSubmissionError(c *gin.Context, taskErr *dto.TaskError
 }
 
 func respondPluginProtocolError(c *gin.Context, status int, code, message string) {
+	errorType := "new_api_error"
+	if code == string(service.UpstreamUnavailableErrorCode) {
+		errorType = "upstream_error"
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"message": message,
-			"type":    "new_api_error",
+			"type":    errorType,
 			"code":    code,
 		},
 	})

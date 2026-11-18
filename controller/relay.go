@@ -94,11 +94,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			service.RecordRequestPolicyTermination(c, newAPIError)
 			logger.LogError(c, common.LogText("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
-			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			publicError := service.PublicUpstreamQuotaError(c, newAPIError)
+			publicError.SetMessage(common.MessageWithRequestId(publicError.Error(), requestId))
 			upstreamURLs := common.UpstreamAddresses(c)
 			if relayFormat != types.RelayFormatOpenAIRealtime && c.Writer.Written() &&
 				strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
-				writeRelayStreamError(c, relayFormat, newAPIError)
+				writeRelayStreamError(c, relayFormat, publicError)
 				return
 			}
 			if relayFormat != types.RelayFormatOpenAIRealtime {
@@ -106,15 +107,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
-				helper.WssError(c, ws, newAPIError.ToOpenAIError(upstreamURLs...))
+				helper.WssError(c, ws, publicError.ToOpenAIError(upstreamURLs...))
 			case types.RelayFormatClaude:
-				c.JSON(newAPIError.StatusCode, gin.H{
+				c.JSON(publicError.StatusCode, gin.H{
 					"type":  "error",
-					"error": newAPIError.ToClaudeError(upstreamURLs...),
+					"error": publicError.ToClaudeError(upstreamURLs...),
 				})
 			default:
-				c.JSON(newAPIError.StatusCode, gin.H{
-					"error": newAPIError.ToOpenAIError(upstreamURLs...),
+				c.JSON(publicError.StatusCode, gin.H{
+					"error": publicError.ToOpenAIError(upstreamURLs...),
 				})
 			}
 		}
@@ -833,10 +834,11 @@ func respondTaskSubmissionError(c *gin.Context, taskErr *taskdto.TaskError) {
 	if c.Writer.Written() {
 		return
 	}
-	if middleware.RespondTaskPluginError(c, taskErr) {
+	publicTaskErr := service.PublicUpstreamQuotaTaskError(c, taskErr)
+	if middleware.RespondTaskPluginError(c, publicTaskErr) {
 		return
 	}
-	respondTaskError(c, taskErr)
+	respondTaskError(c, publicTaskErr)
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）

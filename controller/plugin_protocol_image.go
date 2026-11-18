@@ -331,6 +331,7 @@ func taskPluginImageResponseFormat(request pluginruntime.ProtocolRequestContext)
 // is surfaced so a client sees the vendor reason instead of raw JSON.
 func respondTaskPluginImageError(c *gin.Context, taskErr *dto.TaskError) {
 	service.RecordRequestPolicyTermination(c, taskSubmissionAPIError(taskErr))
+	taskErr = service.PublicUpstreamQuotaTaskError(c, taskErr)
 	status := http.StatusInternalServerError
 	if taskErr.StatusCode >= 400 && taskErr.StatusCode <= 599 {
 		status = taskErr.StatusCode
@@ -348,7 +349,9 @@ func respondTaskPluginImageError(c *gin.Context, taskErr *dto.TaskError) {
 		}
 	}
 	errorType := "new_api_error"
-	if status < http.StatusInternalServerError {
+	if code == string(service.UpstreamUnavailableErrorCode) {
+		errorType = "upstream_error"
+	} else if status < http.StatusInternalServerError {
 		errorType = "invalid_request_error"
 	}
 	c.JSON(status, gin.H{"error": gin.H{

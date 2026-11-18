@@ -319,6 +319,19 @@ func NewErrorWithStatusCode(err error, errorCode ErrorCode, statusCode int, ops 
 	return e
 }
 
+func NewUpstreamError(err error, errorCode ErrorCode, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
+	e := &NewAPIError{
+		Err:        err,
+		errorType:  ErrorTypeUpstreamError,
+		StatusCode: statusCode,
+		errorCode:  errorCode,
+	}
+	for _, op := range ops {
+		op(e)
+	}
+	return e
+}
+
 func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
 	code, ok := openAIError.Code.(string)
 	if !ok {

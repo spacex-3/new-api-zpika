@@ -1,7 +1,9 @@
 package service
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -23,6 +26,11 @@ import (
 const channelErrorAlertWindow = time.Minute
 
 const upstreamQuotaAlertContextKeyPrefix = "upstream_quota_alert_sent_"
+
+const (
+	upstreamQuotaErrorContextKey = "upstream_quota_error"
+	UpstreamUnavailableErrorCode = types.ErrorCode("upstream_unavailable")
+)
 
 var upstreamQuotaErrorCodes = []string{
 	"account_balance_insufficient",
@@ -200,6 +208,48 @@ func IsUpstreamQuotaError(err *types.NewAPIError) bool {
 	})
 }
 
+// PublicUpstreamQuotaError returns the stable client-facing error only when
+// ProcessChannelError marked this exact error as an upstream quota failure.
+func PublicUpstreamQuotaError(c *gin.Context, err *types.NewAPIError) *types.NewAPIError {
+	if c == nil || err == nil {
+		return err
+	}
+	marked, exists := c.Get(upstreamQuotaErrorContextKey)
+	if !exists || marked != err {
+		return err
+	}
+	return types.NewUpstreamError(
+		errors.New(i18n.T(c, i18n.MsgRelayUpstreamUnavailable)),
+		UpstreamUnavailableErrorCode,
+		http.StatusServiceUnavailable,
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
+// PublicUpstreamQuotaTaskError applies the same public contract to upstream
+// task submission errors. Local billing and validation failures are retained.
+func PublicUpstreamQuotaTaskError(c *gin.Context, taskErr *taskdto.TaskError) *taskdto.TaskError {
+	if taskErr == nil || taskErr.LocalError {
+		return taskErr
+	}
+	sourceErr := taskErr.Error
+	if sourceErr == nil {
+		sourceErr = errors.New(taskErr.Message)
+	}
+	apiErr := types.NewOpenAIError(sourceErr, types.ErrorCode(taskErr.Code), taskErr.StatusCode)
+	if !IsUpstreamQuotaError(apiErr) {
+		return taskErr
+	}
+	publicErr := *taskErr
+	publicErr.Code = string(UpstreamUnavailableErrorCode)
+	publicErr.Message = i18n.T(c, i18n.MsgRelayUpstreamUnavailable)
+	publicErr.Data = nil
+	publicErr.StatusCode = http.StatusServiceUnavailable
+	publicErr.Error = nil
+	publicErr.NoRetry = true
+	return &publicErr
+}
+
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
 	if err == nil {
 		return
@@ -207,8 +257,12 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	upstreamURLs := common.UpstreamAddresses(c)
 	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
 	if channelError.ChannelId > 0 {
+		upstreamQuotaError := IsUpstreamQuotaError(err)
+		if upstreamQuotaError {
+			c.Set(upstreamQuotaErrorContextKey, err)
+		}
 		quotaAlertKey := fmt.Sprintf("%s%d", upstreamQuotaAlertContextKeyPrefix, channelError.ChannelId)
-		if !c.GetBool(quotaAlertKey) && IsUpstreamQuotaError(err) {
+		if upstreamQuotaError && !c.GetBool(quotaAlertKey) {
 			c.Set(quotaAlertKey, true)
 			errorCode := string(err.GetErrorCode())
 			if errorCode == "" {

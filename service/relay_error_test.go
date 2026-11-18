@@ -112,6 +112,81 @@ func TestIsUpstreamQuotaError(t *testing.T) {
 	assert.False(t, IsUpstreamQuotaError(nil))
 }
 
+func TestPublicUpstreamQuotaErrorPreservesInternalError(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		language string
+		message  string
+	}{
+		{name: "english", language: "en", message: "Upstream service is temporarily unavailable. Please try again later."},
+		{name: "simplified chinese", language: "zh-CN", message: "上游服务暂时不可用，请稍后重试"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			c.Request.Header.Set("Accept-Language", tc.language)
+			original := types.WithOpenAIError(types.OpenAIError{
+				Message: "预扣费额度失败, 用户剩余额度: 0",
+				Type:    "insufficient_quota",
+				Code:    "insufficient_quota",
+			}, http.StatusForbidden)
+			c.Set(upstreamQuotaErrorContextKey, original)
+
+			publicErr := PublicUpstreamQuotaError(c, original)
+			require.NotSame(t, original, publicErr)
+			assert.Equal(t, http.StatusServiceUnavailable, publicErr.StatusCode)
+			assert.Equal(t, UpstreamUnavailableErrorCode, publicErr.GetErrorCode())
+			assert.Equal(t, types.ErrorTypeUpstreamError, publicErr.GetErrorType())
+			assert.Equal(t, tc.message, publicErr.Error())
+			assert.Equal(t, "upstream_error", publicErr.ToOpenAIError().Type)
+			assert.Equal(t, UpstreamUnavailableErrorCode, publicErr.ToOpenAIError().Code)
+			assert.Equal(t, "upstream_error", publicErr.ToClaudeError().Type)
+
+			assert.Equal(t, http.StatusForbidden, original.StatusCode)
+			assert.Contains(t, original.Error(), "预扣费额度失败")
+		})
+	}
+
+	t.Run("unmarked matching error stays unchanged", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		err := types.NewOpenAIError(errors.New("insufficient balance"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+		assert.Same(t, err, PublicUpstreamQuotaError(c, err))
+	})
+
+	t.Run("earlier marked retry does not mask a different final error", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		quotaErr := types.NewOpenAIError(errors.New("insufficient balance"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+		finalErr := types.NewOpenAIError(errors.New("content policy rejected"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+		c.Set(upstreamQuotaErrorContextKey, quotaErr)
+		assert.Same(t, finalErr, PublicUpstreamQuotaError(c, finalErr))
+	})
+}
+
+func TestPublicUpstreamQuotaTaskErrorOnlyRewritesUpstreamBillingFailures(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	c.Request.Header.Set("Accept-Language", "en")
+
+	upstream := &dto.TaskError{
+		Code:       "bad_response_status_code",
+		Message:    "预扣费额度失败, 用户剩余额度: 0",
+		StatusCode: http.StatusForbidden,
+	}
+	publicErr := PublicUpstreamQuotaTaskError(c, upstream)
+	require.NotSame(t, upstream, publicErr)
+	assert.Equal(t, http.StatusServiceUnavailable, publicErr.StatusCode)
+	assert.Equal(t, string(UpstreamUnavailableErrorCode), publicErr.Code)
+	assert.Equal(t, "Upstream service is temporarily unavailable. Please try again later.", publicErr.Message)
+	assert.True(t, publicErr.NoRetry)
+	assert.Equal(t, http.StatusForbidden, upstream.StatusCode)
+	assert.Contains(t, upstream.Message, "预扣费额度失败")
+
+	local := &dto.TaskError{Code: "insufficient_user_quota", Message: "用户额度不足", StatusCode: http.StatusForbidden, LocalError: true}
+	assert.Same(t, local, PublicUpstreamQuotaTaskError(c, local))
+	nonQuota := &dto.TaskError{Code: "content_policy", Message: "content policy rejected", StatusCode: http.StatusForbidden}
+	assert.Same(t, nonQuota, PublicUpstreamQuotaTaskError(c, nonQuota))
+}
+
 func TestChannelErrorAlertTrackerUsesRollingFailureCount(t *testing.T) {
 	tracker := channelErrorAlertTracker{channels: make(map[int]channelErrorWindow)}
 	startedAt := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
