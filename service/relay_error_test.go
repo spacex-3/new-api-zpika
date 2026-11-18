@@ -183,6 +183,13 @@ func TestPublicUpstreamQuotaTaskErrorOnlyRewritesUpstreamBillingFailures(t *test
 
 	local := &dto.TaskError{Code: "insufficient_user_quota", Message: "用户额度不足", StatusCode: http.StatusForbidden, LocalError: true}
 	assert.Same(t, local, PublicUpstreamQuotaTaskError(c, local))
+	localPreConsume := TaskErrorFromAPIError(types.NewErrorWithStatusCode(
+		errors.New("Not enough quota to pre-consume for this request: $1.00 remaining, $1.35 required"),
+		types.ErrorCodeInsufficientUserQuota,
+		http.StatusForbidden,
+	))
+	require.True(t, localPreConsume.LocalError)
+	assert.Same(t, localPreConsume, PublicUpstreamQuotaTaskError(c, localPreConsume))
 	nonQuota := &dto.TaskError{Code: "content_policy", Message: "content policy rejected", StatusCode: http.StatusForbidden}
 	assert.Same(t, nonQuota, PublicUpstreamQuotaTaskError(c, nonQuota))
 }

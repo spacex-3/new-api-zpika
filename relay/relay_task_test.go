@@ -807,6 +807,7 @@ export function extractUsage() { return {seconds:2}; }
 				require.NotNil(t, taskErr)
 				assert.Equal(t, tc.wantCode, taskErr.Code)
 				assert.Equal(t, http.StatusForbidden, taskErr.StatusCode)
+				assert.True(t, taskErr.LocalError, "local pre-consume failures must not be attributed to the selected channel")
 				return
 			}
 			require.Nil(t, taskErr, "submission error: %+v", taskErr)
