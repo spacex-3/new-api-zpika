@@ -14,6 +14,7 @@ const (
 	logOtherRootInfoKey     = "root_info"
 	logOtherAuditInfoKey    = "audit_info"
 	logOtherContentPartsKey = "content_parts"
+	logOtherUserContentKey  = "user_content"
 )
 
 // legacySensitiveLogOtherKeys are historical top-level fields that must never
@@ -100,6 +101,12 @@ func (o *LogOther) SetAdmin(key string, value any) bool {
 	}
 	o.adminInfo[key] = value
 	return true
+}
+
+// SetUserContent stores an alternate Content value for self/token log views.
+// The database and administrator views retain the original Content value.
+func (o *LogOther) SetUserContent(content string) bool {
+	return o.SetAdmin(logOtherUserContentKey, content)
 }
 
 func (o *LogOther) MergeAdmin(values map[string]any) {
@@ -224,6 +231,25 @@ func normalizeLegacyRejectReason(values map[string]json.RawMessage) bool {
 	values[logOtherAdminInfoKey] = encodedAdminInfo
 	delete(values, "reject_reason")
 	return true
+}
+
+func userLogContent(value string) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+	var values map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(value, &values); err != nil {
+		return "", false
+	}
+	var adminInfo map[string]json.RawMessage
+	if err := common.Unmarshal(values[logOtherAdminInfoKey], &adminInfo); err != nil {
+		return "", false
+	}
+	var content string
+	if err := common.Unmarshal(adminInfo[logOtherUserContentKey], &content); err != nil || content == "" {
+		return "", false
+	}
+	return content, true
 }
 
 // formatLogOtherJSON applies the role projection while keeping untouched JSON

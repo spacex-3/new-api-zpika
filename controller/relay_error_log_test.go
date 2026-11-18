@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -21,6 +22,7 @@ import (
 
 func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	require.NoError(t, i18n.Init())
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousRedisEnabled := common.RedisEnabled
 	previousMainDatabaseType := common.MainDatabaseType()
@@ -67,22 +69,28 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 		ChannelName: "snapshot-channel",
 		AutoBan:     false,
 	}
-	apiErr := types.NewOpenAIError(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
+	apiErr := types.NewOpenAIError(errors.New("upstream account balance insufficient"), types.ErrorCode("insufficient_quota"), http.StatusForbidden)
 
 	processChannelError(ctx, channelSnapshot, apiErr, nil)
 
 	var stored model.Log
 	require.NoError(t, database.First(&stored).Error)
 	assert.Equal(t, channelSnapshot.ChannelId, stored.ChannelId)
+	assert.Contains(t, stored.Content, "upstream account balance insufficient")
 	storedOther, err := common.StrToMap(stored.Other)
 	require.NoError(t, err)
-	assert.Equal(t, float64(http.StatusBadGateway), storedOther["status_code"])
+	assert.Equal(t, float64(http.StatusServiceUnavailable), storedOther["status_code"])
+	assert.Equal(t, "upstream_unavailable", storedOther["error_code"])
+	assert.Equal(t, "upstream_error", storedOther["error_type"])
 	for _, key := range []string{"channel_id", "channel_name", "channel_type"} {
 		assert.NotContains(t, storedOther, key)
 	}
 	adminInfo, ok := storedOther["admin_info"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, []any{"101"}, adminInfo["use_channel"])
+	upstreamError := adminInfo["upstream_error"].(map[string]any)
+	assert.Equal(t, float64(http.StatusForbidden), upstreamError["status_code"])
+	assert.Equal(t, "insufficient_quota", upstreamError["error_code"])
 
 	logs, total, err := model.GetUserLogs(7, model.LogFilter{Type: model.LogTypeError}, 0, 10)
 	require.NoError(t, err)
@@ -90,10 +98,17 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	require.Len(t, logs, 1)
 	assert.Equal(t, channelSnapshot.ChannelId, logs[0].ChannelId)
 	assert.Empty(t, logs[0].ChannelName)
+	assert.Contains(t, logs[0].Content, "status_code=503")
+	assert.Contains(t, logs[0].Content, "Upstream service is temporarily unavailable")
+	assert.NotContains(t, logs[0].Content, "balance insufficient")
 	userOther, err := common.StrToMap(logs[0].Other)
 	require.NoError(t, err)
 	assert.NotContains(t, userOther, "admin_info")
 	for _, key := range []string{"channel_id", "channel_name", "channel_type"} {
 		assert.NotContains(t, userOther, key)
 	}
+
+	adminLogs := []*model.Log{{Content: stored.Content, Other: stored.Other}}
+	model.FormatAdminLogs(adminLogs)
+	assert.Contains(t, adminLogs[0].Content, "upstream account balance insufficient")
 }

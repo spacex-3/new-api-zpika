@@ -114,6 +114,9 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
+		if content, ok := userLogContent(logs[i].Other); ok {
+			logs[i].Content = content
+		}
 		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityUser)
 	}
 	assignDisplayLogIds(logs, startIdx)
@@ -654,6 +657,9 @@ func StreamUserLogs(ctx context.Context, userId int, filter LogFilter, fn func(*
 		count++
 		log.Id = count
 		log.ChannelName = ""
+		if content, ok := userLogContent(log.Other); ok {
+			log.Content = content
+		}
 		log.Other = formatLogOtherJSON(log.Other, logOtherVisibilityUser)
 		return fn(log)
 	})

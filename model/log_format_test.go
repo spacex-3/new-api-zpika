@@ -35,6 +35,28 @@ func TestFormatUserLogsStripsQuotaSaturation(t *testing.T) {
 	require.Contains(t, parsed, "model_price")
 }
 
+func TestUserLogContentIsRoleSeparated(t *testing.T) {
+	other := NewLogOther()
+	other.SetPublic("error_code", "upstream_unavailable")
+	other.SetUserContent("status_code=503, Upstream service is temporarily unavailable")
+	raw := "status_code=403, upstream account balance insufficient"
+
+	userLogs := []*Log{{Content: raw, Other: other.JSONString()}}
+	formatUserLogs(userLogs, 0)
+	assert.Equal(t, "status_code=503, Upstream service is temporarily unavailable", userLogs[0].Content)
+	assert.NotContains(t, userLogs[0].Other, raw)
+	assert.NotContains(t, userLogs[0].Other, logOtherUserContentKey)
+
+	adminLogs := []*Log{{Content: raw, Other: other.JSONString()}}
+	FormatAdminLogs(adminLogs)
+	assert.Equal(t, raw, adminLogs[0].Content)
+	assert.Contains(t, adminLogs[0].Other, logOtherUserContentKey)
+
+	rootLogs := []*Log{{Content: raw, Other: other.JSONString()}}
+	FormatRootLogs(rootLogs)
+	assert.Equal(t, raw, rootLogs[0].Content)
+}
+
 func TestTaskPluginLogVisibilityIsRoleSeparated(t *testing.T) {
 	other := common.MapToJsonStr(map[string]any{
 		"model_price": 1.25,

@@ -255,12 +255,13 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		return
 	}
 	upstreamURLs := common.UpstreamAddresses(c)
-	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
+	rawError := err.MaskSensitiveErrorWithStatusCode(upstreamURLs...)
+	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(rawError)))
+	upstreamQuotaError := channelError.ChannelId > 0 && IsUpstreamQuotaError(err)
+	if upstreamQuotaError {
+		c.Set(upstreamQuotaErrorContextKey, err)
+	}
 	if channelError.ChannelId > 0 {
-		upstreamQuotaError := IsUpstreamQuotaError(err)
-		if upstreamQuotaError {
-			c.Set(upstreamQuotaErrorContextKey, err)
-		}
 		quotaAlertKey := fmt.Sprintf("%s%d", upstreamQuotaAlertContextKeyPrefix, channelError.ChannelId)
 		if upstreamQuotaError && !c.GetBool(quotaAlertKey) {
 			c.Set(quotaAlertKey, true)
@@ -313,9 +314,21 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if c.Request != nil && c.Request.URL != nil {
 			other.SetPublic("request_path", c.Request.URL.Path)
 		}
-		other.SetPublic("error_type", err.GetErrorType())
-		other.SetPublic("error_code", err.GetErrorCode())
-		other.SetPublic("status_code", err.StatusCode)
+		if upstreamQuotaError {
+			other.SetPublic("error_type", types.ErrorTypeUpstreamError)
+			other.SetPublic("error_code", UpstreamUnavailableErrorCode)
+			other.SetPublic("status_code", http.StatusServiceUnavailable)
+			other.SetUserContent(fmt.Sprintf("status_code=%d, %s", http.StatusServiceUnavailable, i18n.T(c, i18n.MsgRelayUpstreamUnavailable)))
+			other.SetAdmin("upstream_error", map[string]any{
+				"error_type":  err.GetErrorType(),
+				"error_code":  err.GetErrorCode(),
+				"status_code": err.StatusCode,
+			})
+		} else {
+			other.SetPublic("error_type", err.GetErrorType())
+			other.SetPublic("error_code", err.GetErrorCode())
+			other.SetPublic("status_code", err.StatusCode)
+		}
 		AppendRelayLogAdminInfo(c, relayInfo, other)
 		AppendResponseModelLogInfo(relayInfo, other)
 		AppendTaskPluginContextAuditInfo(c, other)
@@ -324,6 +337,6 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(upstreamURLs...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, rawError, tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 }
