@@ -506,6 +506,12 @@ func streamTaskPluginProtocol(
 				loadElapsed.Milliseconds(),
 			)
 		}
+		if task.Status == model.TaskStatusFailure {
+			if message, quotaFailure := service.PublicTaskFailureReason(task.FailReason, i18n.StatedLang(c)); quotaFailure {
+				writeTaskPluginProtocolPublicFailure(c, machine, lastStatus, string(service.UpstreamUnavailableErrorCode), message)
+				return
+			}
+		}
 		view, viewErr := service.BuildTaskPluginView(task, i18n.StatedLang(c))
 		if viewErr != nil {
 			logger.LogError(c, common.LogText("build task protocol view failed: %s", viewErr.Error()))
@@ -749,6 +755,10 @@ func waitTaskPluginProtocol(
 		}
 		if !loadOverloaded && (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) {
 			if task.Status == model.TaskStatusFailure {
+				if message, quotaFailure := service.PublicTaskFailureReason(task.FailReason, i18n.StatedLang(c)); quotaFailure {
+					respondPluginProtocolError(c, http.StatusServiceUnavailable, string(service.UpstreamUnavailableErrorCode), message)
+					return
+				}
 				writeTaskPluginProtocolFailureResponse(c, machine, string(task.Status))
 				return
 			}
@@ -1025,6 +1035,10 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 
 	if task.Status == model.TaskStatusFailure {
 		logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_final generation=%d plugin=%q public_task_id=%q status=%q", generationNumber, plugin.Meta.Key, task.TaskID, taskPluginDebugStatus(string(task.Status)))
+		if message, quotaFailure := service.PublicTaskFailureReason(task.FailReason, i18n.StatedLang(c)); quotaFailure {
+			respondPluginProtocolError(c, http.StatusServiceUnavailable, string(service.UpstreamUnavailableErrorCode), message)
+			return
+		}
 		writeTaskPluginProtocolFailureResponse(c, machine, string(task.Status))
 		return
 	}
@@ -1103,6 +1117,19 @@ func writeTaskPluginProtocolFailure(
 	failed, err := machine.FailureEvent(taskStatus)
 	if err != nil {
 		logger.LogError(c, common.LogText("task protocol failure event failed: %s", err.Error()))
+		return
+	}
+	_ = writeTaskPluginProtocolEvent(c, failed)
+}
+
+func writeTaskPluginProtocolPublicFailure(
+	c *gin.Context,
+	machine *relay.PluginResponsesMachine,
+	taskStatus, code, message string,
+) {
+	failed, err := machine.PublicFailureEvent(code, message, taskStatus)
+	if err != nil {
+		logger.LogError(c, common.LogText("task protocol public failure event failed: %s", err.Error()))
 		return
 	}
 	_ = writeTaskPluginProtocolEvent(c, failed)

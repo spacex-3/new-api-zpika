@@ -420,6 +420,20 @@ func TestPluginResponsesMachineNonStreamShapes(t *testing.T) {
 		assert.Equal(t, "in_progress", response.Metadata["task_status"])
 	})
 
+	t.Run("public stream failure preserves sanitized contract", func(t *testing.T) {
+		machine := NewPluginResponsesMachine("task_public_failure", "model", 99, PluginProtocolLimits{})
+		_, err := machine.CreatedEvent()
+		require.NoError(t, err)
+		failed, err := machine.PublicFailureEvent("upstream_unavailable", "Upstream service is temporarily unavailable.", "FAILURE")
+		require.NoError(t, err)
+		assert.Equal(t, "response.failed", failed.Type)
+		require.NotNil(t, failed.Response)
+		require.NotNil(t, failed.Response.Error)
+		assert.Equal(t, "upstream_unavailable", failed.Response.Error.Code)
+		assert.Equal(t, "Upstream service is temporarily unavailable.", failed.Response.Error.Message)
+		assert.Equal(t, "failed", failed.Response.Metadata["task_status"])
+	})
+
 	t.Run("unknown persisted status stays in documented vocabulary", func(t *testing.T) {
 		machine := NewPluginResponsesMachine("task_unknown", "model", 99, PluginProtocolLimits{})
 		response, err := machine.TimeoutResponse("UNKNOWN_PROVIDER_STATE")

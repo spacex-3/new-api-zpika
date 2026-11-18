@@ -544,6 +544,22 @@ func (m *PluginResponsesMachine) FailureEvent(taskStatus ...string) (dto.PluginR
 	return m.fail("server_error", "The task could not be observed."), nil
 }
 
+// PublicFailureEvent terminates an already-started stream with an error the
+// host has already reduced to a stable, non-sensitive public contract.
+func (m *PluginResponsesMachine) PublicFailureEvent(code, message string, taskStatus ...string) (dto.PluginResponsesStreamEvent, error) {
+	if !m.started {
+		return dto.PluginResponsesStreamEvent{}, errors.New("response.created must be emitted before response.failed")
+	}
+	if m.terminal {
+		return dto.PluginResponsesStreamEvent{}, errors.New("response is already terminal")
+	}
+	if strings.TrimSpace(code) == "" || strings.TrimSpace(message) == "" {
+		return dto.PluginResponsesStreamEvent{}, errors.New("public failure code and message are required")
+	}
+	m.setPersistedTaskStatus(taskStatus)
+	return m.fail(code, message), nil
+}
+
 func (m *PluginResponsesMachine) TimeoutEvent(taskStatus ...string) (dto.PluginResponsesStreamEvent, error) {
 	if !m.started {
 		return dto.PluginResponsesStreamEvent{}, errors.New("response.created must be emitted before response.incomplete")

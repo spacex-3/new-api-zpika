@@ -872,6 +872,36 @@ func TestServeTaskPluginProtocolNonStreamTaskFailureSkipsFinalHook(t *testing.T)
 	assert.Empty(t, logs)
 }
 
+func TestServeTaskPluginProtocolNonStreamUpstreamQuotaFailureReturns503(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	pinned := compilePluginProtocolTestEndpoint(t, "quota-failed-final", `
+		export const protocols = {openai_responses: {
+			renderEvents: function() { throw new Error("must not render"); },
+			renderFinal: function() { throw new Error("must not render"); }
+		}};
+	`)
+	c, recorder := newPluginProtocolTestContext(false, false)
+	c.Request.Header.Set("Accept-Language", "en")
+	deps := pluginProtocolTestDeps()
+	deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		return pluginProtocolTestOutcome(info, pinned.Plugin.Meta.Key, "task_quota_failed", nil), nil
+	}
+	deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
+		return &model.Task{
+			TaskID: "task_quota_failed", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71,
+			Status: model.TaskStatusFailure, FailReason: "Not enough quota to pre-consume: $0 remaining, $1 required",
+		}, true, nil
+	}
+
+	serveTaskPluginProtocol(c, pinned, deps)
+
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"code":"upstream_unavailable"`)
+	assert.Contains(t, recorder.Body.String(), `"type":"upstream_error"`)
+	assert.Contains(t, recorder.Body.String(), "Upstream service is temporarily unavailable")
+	assert.NotContains(t, recorder.Body.String(), "remaining")
+}
+
 func TestServeTaskPluginProtocolStreamTaskFailureSuppressesPluginAndDatabaseDetails(t *testing.T) {
 	pinned := compilePluginProtocolTestEndpoint(t, "failed-stream", `
 		export const protocols = {openai_responses: {
@@ -914,6 +944,35 @@ func TestServeTaskPluginProtocolStreamTaskFailureSuppressesPluginAndDatabaseDeta
 	assert.NotContains(t, recorder.Body.String(), "secret")
 	assert.NotContains(t, recorder.Body.String(), "invalid")
 	assert.NotContains(t, recorder.Body.String(), "hidden")
+}
+
+func TestServeTaskPluginProtocolStreamUpstreamQuotaFailureUsesPublicEvent(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	pinned := compilePluginProtocolTestEndpoint(t, "quota-failed-stream", `
+		export const protocols = {openai_responses: {
+			renderEvents: function() { throw new Error("must not render"); },
+			renderFinal: function() { throw new Error("must not render"); }
+		}};
+	`)
+	c, recorder := newPluginProtocolTestContext(true, false)
+	c.Request.Header.Set("Accept-Language", "en")
+	deps := pluginProtocolTestDeps()
+	deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		return pluginProtocolTestOutcome(info, pinned.Plugin.Meta.Key, "task_quota_stream", nil), nil
+	}
+	deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
+		return &model.Task{
+			TaskID: "task_quota_stream", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71,
+			Status: model.TaskStatusFailure, FailReason: "Not enough quota to pre-consume: $0 remaining, $1 required",
+		}, true, nil
+	}
+
+	serveTaskPluginProtocol(c, pinned, deps)
+
+	assert.Equal(t, []string{"response.created", "response.failed"}, pluginProtocolTestSSEEventTypes(recorder.Body.String()))
+	assert.Contains(t, recorder.Body.String(), `"code":"upstream_unavailable"`)
+	assert.Contains(t, recorder.Body.String(), "Upstream service is temporarily unavailable")
+	assert.NotContains(t, recorder.Body.String(), "remaining")
 }
 
 func TestServeTaskPluginProtocolRejectsUnsupportedProtocolBeforeSubmission(t *testing.T) {
@@ -1335,6 +1394,31 @@ func TestRetrieveTaskPluginResponseFailureUsesFailedEnvelope(t *testing.T) {
 	require.NotNil(t, response.Error)
 	assert.Equal(t, "server_error", response.Error.Code)
 	assert.Equal(t, "The task failed.", response.Error.Message)
+}
+
+func TestRetrieveTaskPluginResponseUpstreamQuotaFailureReturns503(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	pinned := compilePluginProtocolRetrieveEndpoint(t, "retrieve-quota-failure", `
+		export const protocols = {openai_responses: {
+			renderEvents: function() { throw new Error("must not render"); },
+			renderFinal: function() { throw new Error("must not render"); }
+		}};
+	`, pluginruntime.Options{})
+	c, recorder := newPluginProtocolRetrieveContext("resp_retrieve_quota_failure")
+	c.Request.Header.Set("Accept-Language", "en")
+	deps := pluginProtocolRetrieveDeps(pinned, &model.Task{
+		TaskID: "task_retrieve_quota_failure", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71,
+		Status: model.TaskStatusFailure, FailReason: "billing_not_active: upstream account cannot serve requests",
+		Properties: model.Properties{OriginModelName: "video-model"},
+	}, true, nil)
+
+	retrieveTaskPluginResponse(c, deps)
+
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"code":"upstream_unavailable"`)
+	assert.Contains(t, recorder.Body.String(), `"type":"upstream_error"`)
+	assert.Contains(t, recorder.Body.String(), "Upstream service is temporarily unavailable")
+	assert.NotContains(t, recorder.Body.String(), "billing_not_active")
 }
 
 func TestRetrieveTaskPluginResponseNotFound(t *testing.T) {
