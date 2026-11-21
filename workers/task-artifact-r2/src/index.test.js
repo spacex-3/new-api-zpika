@@ -1,11 +1,112 @@
 import { describe, expect, test } from "bun:test";
 import worker, { endpointPath, fetchSource, hmac, isBlockedHostname, mediaMessage, timingSafeEqual, validateIngestJob, validateObjectKey } from "./index.js";
+import { buildContentRequest } from "../../../plugins/tasks/az/plugin.js";
 
 function base64URL(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+
+async function signedIngest(job, env) {
+  const body = JSON.stringify(job);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = base64URL(crypto.getRandomValues(new Uint8Array(18)));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)));
+  const hex = Array.from(digest, (value) => value.toString(16).padStart(2, "0")).join("");
+  const signature = base64URL(await hmac(env.INGEST_HMAC_SECRET, ["v1", "POST", "/v1/ingest", timestamp, nonce, hex].join("\n")));
+  return worker.fetch(new Request("https://worker.example/v1/ingest", {
+    method: "POST", body, headers: {
+      "X-Zpika-Artifact-Key-Id": env.INGEST_HMAC_KEY_ID,
+      "X-Zpika-Artifact-Timestamp": timestamp,
+      "X-Zpika-Artifact-Nonce": nonce,
+      "X-Zpika-Artifact-Signature": signature,
+    },
+  }), env);
+}
+
+test("AZ signed ingest extracts Base64 task results into R2 without exposing provider credentials", async () => {
+  const originalFetch = globalThis.fetch;
+  const key = "new-api/v1/2026-11-10/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const expires = Math.floor(Date.now() / 1000) + 3600;
+  try {
+    for (const shape of ["base64", "data URL", "object"]) {
+      const entry = shape === "data URL" ? { url: "data:image/png;base64,aW1hZ2U=" } : { b64_json: "aW1hZ2U=" };
+      const taskData = { status: "completed", result: { data: shape === "object" ? entry : [entry] } };
+      const descriptor = buildContentRequest({
+        baseUrl: "https://provider.example", apiKey: "channel-secret", upstreamTaskId: "azimg_private",
+        artifactKey: "image-1", data: taskData, clientRequest: { method: "GET" },
+      });
+      let stored;
+      const bucket = {
+        async head() { return stored || null; },
+        async put(objectKey, stream, options) {
+          expect(objectKey).toBe(key);
+          const bytes = await new Response(stream).text();
+          expect(bytes).toBe("image");
+          expect(options.httpMetadata.contentType).toBe("image/png");
+          expect(JSON.stringify(options)).not.toContain("channel-secret");
+          stored = { size: bytes.length, ...options };
+        },
+      };
+      let fetches = 0;
+      globalThis.fetch = async (url, init) => {
+        fetches++;
+        expect(String(url)).toBe("https://provider.example/v1/images/tasks/azimg_private");
+        expect(new Headers(init.headers).get("Authorization")).toBe("Bearer channel-secret");
+        return Response.json(taskData);
+      };
+      const env = { ARTIFACT_BUCKET: bucket, INGEST_HMAC_KEY_ID: "v1", INGEST_HMAC_SECRET: "test-worker-secret", MAX_ARTIFACT_BYTES: "1024" };
+      const job = {
+        version: "v1", object_key: key, expires_at: expires, artifact_type: "image", mime_type: descriptor.mimeType, max_bytes: 1024,
+        source: { url: descriptor.url, method: descriptor.method, headers: descriptor.headers, credentialless: false,
+          credential_origin: "https://provider.example", content_path: descriptor.contentPath },
+      };
+      const response = await signedIngest(job, env);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual({ ready: true, size: 5 });
+      expect((await signedIngest(job, env)).status).toBe(200);
+      expect(fetches).toBe(1);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("inline R2 ingestion rejects failed, unfinished, missing, invalid, and oversized payloads", async () => {
+  const originalFetch = globalThis.fetch;
+  let writes = 0;
+  const env = {
+    INGEST_HMAC_KEY_ID: "v1", INGEST_HMAC_SECRET: "test-worker-secret", MAX_ARTIFACT_BYTES: "1024",
+    ARTIFACT_BUCKET: { async head() { return null; }, async put() { writes++; } },
+  };
+  const job = {
+    version: "v1", object_key: "new-api/v1/2026-11-10/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    expires_at: Math.floor(Date.now() / 1000) + 3600, artifact_type: "image", mime_type: "image/png", max_bytes: 4,
+    source: { url: "https://provider.example/task", method: "GET", credentialless: true, content_path: ["result", "data", 0, "b64_json"] },
+  };
+  try {
+    for (const reply of [
+      { status: "processing" },
+      { status: "failed", error: { code: "insufficient_quota" } },
+      { status: "completed", result: { data: [] } },
+      { status: "completed", result: { data: [{ b64_json: "%%%" }] } },
+      { status: "completed", result: { data: [{ b64_json: "aW1hZ2U=" }] } },
+      { status: "completed", result: { data: [{ b64_json: "A".repeat(2 * 1024 * 1024) }] } },
+    ]) {
+      globalThis.fetch = async () => Response.json(reply);
+      const response = await signedIngest(job, env);
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "ingest_failed" });
+    }
+    expect(writes).toBe(0);
+    for (const content_path of [[], [null], [-1], [1.5], Array(33).fill("a")]) {
+      expect(() => validateIngestJob({ ...job, source: { ...job.source, content_path } }, env)).toThrow("content path");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 describe("artifact worker security helpers", () => {
   test("accepts only opaque New API object keys", () => {

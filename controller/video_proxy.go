@@ -433,6 +433,9 @@ func writeTaskMediaContentPath(c *gin.Context, body io.Reader, descriptor *relay
 			message: "Artifact content is no longer available",
 		}
 	}
+	if strings.HasPrefix(content.Str, "data:") {
+		return writeVideoDataURL(c, content.Str)
+	}
 	if err := writeTaskMediaBase64(c, descriptor.MimeType, content.Str); err != nil {
 		return &taskMediaProxyError{
 			status: http.StatusBadGateway, code: "artifact_upstream_error",

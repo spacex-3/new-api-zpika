@@ -1,5 +1,7 @@
 const PROTOCOL_VERSION = "v1";
 const MAX_JOB_BYTES = 2 * 1024 * 1024;
+// Inline JSON must be decoded in memory; ordinary media remains streamed.
+const MAX_INLINE_ARTIFACT_BYTES = 16 * 1024 * 1024;
 const MAX_JOB_AGE_SECONDS = 300;
 const MAX_OBJECT_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MULTIPART_PART_BYTES = 8 * 1024 * 1024;
@@ -149,6 +151,11 @@ function validateIngestJob(job, env) {
   const method = String(job.source.method || "GET").toUpperCase();
   const headers = sourceHeaders(job.source.headers);
   const body = sourceBody(job.source.body_base64);
+  const contentPath = job.source.content_path;
+  if (contentPath !== undefined && (!Array.isArray(contentPath) || contentPath.length === 0 || contentPath.length > 32 ||
+      contentPath.some((segment) => typeof segment !== "string" && !(Number.isSafeInteger(segment) && segment >= 0)))) {
+    throw new Error("invalid artifact content path");
+  }
   if (!["GET", "POST"].includes(method)) throw new Error("invalid source method");
   if (job.source.credentialless && (Array.from(headers).length !== 0 || body || method !== "GET")) throw new Error("invalid credentialless source");
   if (!job.source.credentialless) {
@@ -160,7 +167,7 @@ function validateIngestJob(job, env) {
     }
     if (origin !== url.origin) throw new Error("credential origin mismatch");
   }
-  return { ...job, max_bytes: maxBytes, source: { url, method, headers, body, credentialless: Boolean(job.source.credentialless) } };
+  return { ...job, max_bytes: maxBytes, source: { url, method, headers, body, contentPath, credentialless: Boolean(job.source.credentialless) } };
 }
 
 async function fetchSource(source) {
@@ -278,6 +285,55 @@ async function storeSource(bucket, job, response) {
   return stored;
 }
 
+// Optional content_path mirrors the gateway's existing JSON artifact descriptor.
+// Ordinary media downloads keep their streaming path and do not enter this branch.
+async function inlineArtifact(job, response) {
+  if (response.status !== 200 || !response.body) throw new Error("source did not return a complete artifact");
+  const maxBytes = Math.min(job.max_bytes, MAX_INLINE_ARTIFACT_BYTES);
+  const limit = Math.ceil(maxBytes * 4 / 3) + 1024 * 1024;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0, json = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > limit) throw new Error("inline artifact response exceeds limit");
+      json += decoder.decode(value, { stream: true });
+    }
+    json += decoder.decode();
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  let content = JSON.parse(json);
+  if (!content || content.error || (content.done !== true && content.status !== "completed")) throw new Error("inline artifact is not ready");
+  for (const segment of job.source.contentPath) {
+    if (!content || typeof content !== "object" || !Object.hasOwn(content, segment) ||
+        (typeof segment === "number" ? !Array.isArray(content) : Array.isArray(content))) {
+      throw new Error("inline artifact path is missing");
+    }
+    content = content[segment];
+  }
+  let contentType = job.mime_type || "application/octet-stream";
+  if (typeof content === "string" && content.startsWith("data:")) {
+    const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,/.exec(content);
+    if (!match || job.artifact_type !== "image") throw new Error("invalid inline image data URL");
+    contentType = match[1];
+    content = content.slice(match[0].length);
+  }
+  if (typeof content !== "string" || !content || content.length > Math.ceil(maxBytes / 3) * 4 ||
+      !/^[A-Za-z0-9+/_-]+={0,2}$/.test(content)) throw new Error("invalid inline artifact Base64");
+  const binary = atob(content.replace(/-/g, "+").replace(/_/g, "/"));
+  if (!binary.length || binary.length > maxBytes) throw new Error("inline artifact exceeds limit");
+  const data = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) data[index] = binary.charCodeAt(index);
+  return new Response(data, { headers: { "Content-Type": contentType, "Content-Length": String(data.byteLength) } });
+}
+
 function objectExpired(object) {
   const expiresAt = Number(object && object.customMetadata && object.customMetadata.expires_at);
   return !Number.isInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000);
@@ -305,7 +361,8 @@ async function handleIngest(rawJob, env) {
   if (existing && !objectExpired(existing)) return json({ ready: true, size: existing.size }, 200);
   if (existing) await env.ARTIFACT_BUCKET.delete(job.object_key);
   try {
-    const response = await fetchSource(job.source);
+    let response = await fetchSource(job.source);
+    if (job.source.contentPath) response = await inlineArtifact(job, response);
     const stored = await storeSource(env.ARTIFACT_BUCKET, job, response);
     return json({ ready: true, size: stored.size }, 201);
   } catch {

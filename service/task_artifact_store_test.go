@@ -175,6 +175,7 @@ func TestWorkerArtifactPersistCarriesCredentialOnlyInSignedJob(t *testing.T) {
 		assert.Equal(t, "https://video.example.com", job.Source.CredentialOrigin)
 		assert.Equal(t, "Bearer channel-secret", job.Source.Headers["Authorization"])
 		assert.False(t, job.Source.Credentialless)
+		assert.Equal(t, []any{"result", "data", float64(0), "b64_json"}, job.Source.ContentPath)
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer server.Close()
@@ -189,7 +190,8 @@ func TestWorkerArtifactPersistCarriesCredentialOnlyInSignedJob(t *testing.T) {
 		artifact: types.TaskArtifact{Key: "video", Type: "video", MimeType: "video/mp4"},
 		source: TaskArtifactSource{
 			URL: "https://video.example.com/protected.mp4?token=opaque", Method: http.MethodGet,
-			Headers: map[string]string{"Authorization": "Bearer channel-secret"},
+			Headers:     map[string]string{"Authorization": "Bearer channel-secret"},
+			ContentPath: []any{"result", "data", 0, "b64_json"},
 		},
 		ref: StoredArtifactRef{ObjectKey: "new-api/v1/2026-11-10/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ExpiresAt: time.Now().Add(time.Hour).Unix()},
 	}

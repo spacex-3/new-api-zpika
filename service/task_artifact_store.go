@@ -126,6 +126,7 @@ type workerArtifactSourceRequest struct {
 	BodyBase64       string            `json:"body_base64,omitempty"`
 	Credentialless   bool              `json:"credentialless"`
 	CredentialOrigin string            `json:"credential_origin,omitempty"`
+	ContentPath      []any             `json:"content_path,omitempty"`
 }
 
 type workerArtifactIngestRequest struct {
@@ -262,7 +263,7 @@ func (s *workerR2ArtifactStore) Resolve(ctx context.Context, task *model.Task, a
 }
 
 func (s *workerR2ArtifactStore) QueuePersist(task *model.Task, artifact types.TaskArtifact, source TaskArtifactSource) {
-	if task == nil || len(source.ContentPath) != 0 || strings.HasPrefix(strings.TrimSpace(source.URL), "data:") {
+	if task == nil || strings.HasPrefix(strings.TrimSpace(source.URL), "data:") {
 		return
 	}
 	ref, err := s.artifactRef(task, artifact.Key)
@@ -282,7 +283,8 @@ func (s *workerR2ArtifactStore) QueuePersist(task *model.Task, artifact types.Ta
 		source: TaskArtifactSource{
 			URL: source.URL, Method: source.Method, Credentialless: source.Credentialless,
 			MimeType: source.MimeType, Body: append([]byte(nil), source.Body...),
-			Headers: cloneStringMap(source.Headers),
+			Headers:     cloneStringMap(source.Headers),
+			ContentPath: append([]any(nil), source.ContentPath...),
 		},
 		ref:  *ref,
 		done: done,
@@ -377,6 +379,7 @@ func (s *workerR2ArtifactStore) persist(ctx context.Context, job workerArtifactJ
 			URL: job.source.URL, Method: method, Headers: headers,
 			Credentialless:   job.source.Credentialless,
 			CredentialOrigin: origin,
+			ContentPath:      job.source.ContentPath,
 		},
 	}
 	if len(job.source.Body) > 0 {

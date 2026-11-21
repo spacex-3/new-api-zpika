@@ -642,6 +642,7 @@ func TestProxyTaskMediaReadsArtifactFromJSONContentPath(t *testing.T) {
 		code, body          string
 	}{
 		{name: "inline video", method: http.MethodGet, reply: `{"name":"op","done":true,"response":{"videos":[{"bytesBase64Encoded":"` + inline + `"}]}}`, status: http.StatusOK, body: "inline-video"},
+		{name: "inline data URL", method: http.MethodGet, reply: `{"status":"completed","response":{"videos":[{"bytesBase64Encoded":"data:video/webm;base64,` + inline + `"}]}}`, status: http.StatusOK, body: "inline-video"},
 		{name: "headers only", method: http.MethodHead, reply: `{"name":"op","done":true,"response":{"videos":[{"bytesBase64Encoded":"` + inline + `"}]}}`, status: http.StatusOK},
 		{name: "URL-safe base64", method: http.MethodGet, reply: `{"done":true,"response":{"videos":[{"bytesBase64Encoded":"-_8="}]}}`, status: http.StatusOK, body: "\xfb\xff"},
 		{name: "written to storage", method: http.MethodGet, reply: `{"done":true,"response":{"videos":[{"gcsUri":"gs://bucket/video.mp4"}]}}`, status: http.StatusGone, code: "artifact_gone"},
