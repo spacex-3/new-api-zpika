@@ -8,7 +8,7 @@ export const meta = {
   key: "az",
   name: "AZ Images",
   icon: "Gemini.Color",
-  version: "1.0.3",
+  version: "1.0.4",
   author: { name: "QuantumNous" },
   description: { en: "Asynchronous AZ image generation and editing", zh: "AZ 异步图片生成与编辑" },
   baseUrl: "https://cnmoai.com",
@@ -113,8 +113,10 @@ function inlineImage(value, files) {
   }
   if (value && typeof value === "object") value = value.url;
   const url = text(value);
+  // AZ downloads HTTPS references itself; preserve signed URLs without fetching locally.
+  if (/^https:\/\/[^/\s?#@\\]+(?:[/?#][^\s\\]*)?$/i.test(url)) return { image_url: url };
   if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(url)) {
-    throw new Error("AZ reference images must be PNG, JPEG, WebP, or GIF Base64 data URLs; upload files for larger images");
+    throw new Error("AZ reference images must be HTTPS URLs or PNG, JPEG, WebP, or GIF Base64 data URLs; upload files for larger images");
   }
   const encoded = url.slice(url.indexOf(",") + 1);
   if (encoded.length % 4 !== 0) throw new Error("reference image has invalid Base64 padding");

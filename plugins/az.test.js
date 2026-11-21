@@ -56,13 +56,33 @@ describe("AZ image tasks", () => {
     expect(submittedUpload.body.images).toEqual(native.requestBody.images);
     expect(submittedUpload.url).toEndWith("/v1/images/edits/async");
     expect(() => az.protocols.openai_image.decodeRequest({ ...upload, model: alias, operation: "edit" })).toThrow("/az/v1/images/edits");
-    expect(() => decode({ ...body, images: ["https://cdn.example/image.png"] }, "edit")).toThrow("Base64 data URLs");
     expect(() => decode(body, "edit")).toThrow("at least one reference");
     expect(() => decode({ ...body, images: Array(11).fill(`data:image/png;base64,${image}`) })).toThrow("at most 10");
     expect(() => az.native.editImage({ body: { ...upload.body, files: [{ ...upload.body.files[0], size: 19 * 1024 * 1024 }] } })).toThrow("24 MiB");
     for (const extra of [{ mask: "anything" }, { stream: true }, { metadata: { n: 100 } }]) {
       expect(() => decode({ ...body, ...extra })).toThrow("Unsupported AZ image parameter");
     }
+  });
+
+  test("passes HTTPS references unchanged through protocol, native, and generic edits", () => {
+    const url = "https://cdn.example/reference.png?signature=a%2Bb&expires=123";
+    for (const images of [[url], [{ image_url: url }], [{ image_url: { url } }], [{ url }]]) {
+      const value = { ...body, quality: "2k", size: "1:1", images };
+      const edit = decode(value, "edit");
+      expect(edit.action).toBe("image_edit");
+      expect(edit.requestBody.images).toEqual([{ image_url: url }]);
+      const submit = az.buildSubmitRequest({ ...driver(edit), requestBody: value });
+      expect(submit.url).toEndWith("/v1/images/edits/async");
+      expect(submit.body.images).toEqual([{ image_url: url }]);
+      expect(submit.body.size).toBe("2048x2048");
+      expect(az.native.editImage({ body: { kind: "json", value } }).requestBody.images).toEqual([{ image_url: url }]);
+    }
+    expect(decode({ ...body, reference_image_urls: [url] }, "edit").requestBody.images).toEqual([{ image_url: url }]);
+    for (const url of ["http://cdn.example/image.png", "https://", "https:///image.png", "https://cdn.example/a b.png", "https://user:password@cdn.example/image.png", "https://cdn.example\\image.png"]) {
+      expect(() => decode({ ...body, images: [{ image_url: url }] }, "edit")).toThrow("HTTPS URLs");
+      expect(() => az.buildSubmitRequest({ ...driver(), requestBody: { ...body, images: [url] } })).toThrow("HTTPS URLs");
+    }
+    expect(() => decode({ ...body, images: Array(11).fill(url) }, "edit")).toThrow("at most 10");
   });
 
   test("bounds billing quantities and derives resolution from the submitted size", () => {
