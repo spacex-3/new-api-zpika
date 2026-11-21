@@ -60,7 +60,7 @@ describe("AZ image tasks", () => {
     expect(() => decode(body, "edit")).toThrow("at least one reference");
     expect(() => decode({ ...body, images: Array(11).fill(`data:image/png;base64,${image}`) })).toThrow("at most 10");
     expect(() => az.native.editImage({ body: { ...upload.body, files: [{ ...upload.body.files[0], size: 19 * 1024 * 1024 }] } })).toThrow("24 MiB");
-    for (const extra of [{ quality: "high" }, { mask: "anything" }, { stream: true }, { metadata: { n: 100 } }]) {
+    for (const extra of [{ mask: "anything" }, { stream: true }, { metadata: { n: 100 } }]) {
       expect(() => decode({ ...body, ...extra })).toThrow("Unsupported AZ image parameter");
     }
   });
@@ -112,6 +112,41 @@ describe("AZ image tasks", () => {
     // A format hint cannot relabel JPEG bytes as PNG.
     const jpegTask = { ...view, data: { status: "completed", result: { data: [{ b64_json: "/9j/AA==" }] } } };
     expect(az.listArtifacts(jpegTask)[0].mimeType).toBe("image/jpeg");
+  });
+
+  test("maps Cangyuan image quality and aspect-ratio fields to AZ size", () => {
+    const value = { ...body, size: "1:1", quality: "2k", output_format: "png", images: [{ image_url: `data:image/png;base64,${image}` }] };
+    const edit = decode(value, "edit");
+    expect(edit.requestBody).toEqual({
+      model: alias, prompt: "a cat", size: "2048x2048", n: 1, response_format: "b64_json",
+      images: [{ image_url: `data:image/png;base64,${image}` }],
+    });
+    expect(edit.requestBody.quality).toBeUndefined();
+    expect(edit.requestBody.output_format).toBeUndefined();
+    expect(az.extractUsage({ ...driver(edit), usagePurpose: "facts" })).toEqual({ image_count: 1, resolution: "2K" });
+    expect(az.buildSubmitRequest(driver(edit)).body.size).toBe("2048x2048");
+    const generic = { ...driver(edit), requestBody: value, usagePurpose: "facts" };
+    expect(az.buildSubmitRequest(generic).body.size).toBe("2048x2048");
+    expect(az.extractUsage(generic)).toEqual({ image_count: 1, resolution: "2K" });
+    for (const [size, quality, want] of [["16:9", "2k", "2048x1152"], ["3:2", "1k", "1023x682"], ["1:1", "4K", "4096x4096"]]) {
+      const request = decode({ ...body, size, quality }, "generate");
+      expect(request.requestBody.size).toBe(want);
+      expect(az.extractUsage({ ...driver(request), usagePurpose: "facts" }).resolution).toBe(quality.toUpperCase());
+    }
+    const multipart = az.protocols.openai_image.decodeRequest({
+      model: alias, operation: "edit", body: {
+        kind: "multipart", fields: { model: [alias], prompt: ["edit"], n: ["1"], size: ["1:1"], quality: ["2k"] },
+        files: [{ ref: "request_file:image", field: "image", mimeType: "image/jpeg", size: 12 }],
+      },
+    });
+    expect(multipart.requestBody.size).toBe("2048x2048");
+    expect(multipart.requestBody.images[0].image_url.__fileRef).toBe("request_file:image");
+    for (const quality of ["high", "8k", "", 2, null, {}]) {
+      expect(() => decode({ ...body, quality })).toThrow("quality must be");
+      expect(() => az.buildSubmitRequest({ ...driver(), requestBody: { ...body, quality } })).toThrow("quality must be");
+    }
+    expect(() => decode({ ...body, size: "1:1", quality: "2k", n: 2 })).toThrow("n=1");
+    expect(() => decode({ ...body, size: "1:100", quality: "2k" })).toThrow("aspect ratio");
   });
 
   test("preserves quota machine codes for host refunds and administrator Bark alerts", () => {

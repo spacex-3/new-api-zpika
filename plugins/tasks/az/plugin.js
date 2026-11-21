@@ -8,7 +8,7 @@ export const meta = {
   key: "az",
   name: "AZ Images",
   icon: "Gemini.Color",
-  version: "1.0.1",
+  version: "1.0.2",
   author: { name: "QuantumNous" },
   description: { en: "Asynchronous AZ image generation and editing", zh: "AZ 异步图片生成与编辑" },
   baseUrl: "https://cnmoai.com",
@@ -55,6 +55,34 @@ function resolution(size) {
     throw new Error("size has an unsupported aspect ratio");
   }
   return Math.max(width, height) <= 1024 ? "1K" : Math.max(width, height) <= 2048 ? "2K" : "4K";
+}
+
+function normalizeSize(size, quality) {
+  const normalizedQuality = text(quality).toUpperCase();
+  if (quality !== undefined && !["1K", "2K", "4K"].includes(normalizedQuality)) {
+    throw new Error("quality must be 1k, 2k, or 4k");
+  }
+  const value = size === undefined ? "auto" : text(size);
+  if (["auto", "1K", "2K", "4K"].includes(value)) return normalizedQuality || value;
+  // Cangyuan clients use size for the aspect ratio and quality for resolution.
+  // AZ takes both in size; preserve the exact ratio and bill the same tier.
+  let ratio = /^([1-9][0-9]{0,2}):([1-9][0-9]{0,2})$/.exec(value);
+  if (!ratio) {
+    resolution(value);
+    if (!normalizedQuality) return value;
+    ratio = /^([1-9][0-9]{0,4})x([1-9][0-9]{0,4})$/.exec(value);
+  }
+  const widthRatio = Number(ratio[1]), heightRatio = Number(ratio[2]);
+  let left = widthRatio, right = heightRatio;
+  while (right) { const remainder = left % right; left = right; right = remainder; }
+  const width = widthRatio / left, height = heightRatio / left;
+  const aspectRatio = width + ":" + height;
+  if (!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].includes(aspectRatio)) {
+    throw new Error("size has an unsupported aspect ratio");
+  }
+  const limit = normalizedQuality === "4K" ? 4096 : normalizedQuality === "2K" ? 2048 : 1024;
+  const scale = Math.floor(limit / Math.max(width, height));
+  return (width * scale) + "x" + (height * scale);
 }
 
 function jsonBytes(value) {
@@ -112,7 +140,7 @@ function decodeImage(ctx) {
     if (body["async"] === true && !ctx.nativeAsync) throw new Error("Use /az/v1/images/edits for asynchronous multipart uploads");
   }
   for (const key of Object.keys(body)) {
-    if (!["model", "prompt", "size", "n", "response_format", "output_format", "async", "images", "image", "reference_image_urls"].includes(key)) {
+    if (!["model", "prompt", "size", "quality", "n", "response_format", "output_format", "async", "images", "image", "reference_image_urls"].includes(key)) {
       throw new Error("Unsupported AZ image parameter: " + key);
     }
   }
@@ -123,7 +151,7 @@ function decodeImage(ctx) {
   // AZ has no encoder selection: accept known image formats without forwarding
   // the hint, and keep serving the actual upstream MIME type without transcoding.
   if (body.output_format !== undefined && !["png", "jpeg", "jpg", "webp"].includes(body.output_format)) throw new Error("output_format must be png, jpeg, jpg, or webp");
-  const model = text(ctx.model || body.model), prompt = text(body.prompt), size = body.size === undefined ? "auto" : text(body.size);
+  const model = text(ctx.model || body.model), prompt = text(body.prompt), size = normalizeSize(body.size, body.quality);
   if (!model || !prompt) throw new Error("model and a non-empty prompt are required");
   resolution(size);
   const request = { model: model, prompt: prompt, size: size, n: 1, response_format: "b64_json" };
@@ -252,7 +280,8 @@ export function parseTaskResult(ctx, body) {
 
 export function extractUsage(ctx) {
   if (ctx.usagePurpose === "billing_ratios") return {};
-  return { image_count: 1, resolution: resolution(text(object(ctx.requestBody).size) || "auto") };
+  const body = object(ctx.requestBody);
+  return { image_count: 1, resolution: resolution(normalizeSize(body.size, body.quality)) };
 }
 
 export function extractUsageOnComplete(ctx, result, body) {
