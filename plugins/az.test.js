@@ -133,6 +133,16 @@ describe("AZ image tasks", () => {
       expect(request.requestBody.size).toBe(want);
       expect(az.extractUsage({ ...driver(request), usagePurpose: "facts" }).resolution).toBe(quality.toUpperCase());
     }
+    for (const quality of ["1k", "2k", "4k"]) {
+      for (const size of ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]) {
+        const request = decode({ ...body, size, quality });
+        const submitted = az.buildSubmitRequest(driver(request));
+        const [width, height] = submitted.body.size.split("x").map(Number);
+        const [widthRatio, heightRatio] = size.split(":").map(Number);
+        expect(width * heightRatio).toBe(height * widthRatio);
+        expect(az.extractUsage({ ...driver(request), usagePurpose: "facts" }).resolution).toBe(quality.toUpperCase());
+      }
+    }
     const multipart = az.protocols.openai_image.decodeRequest({
       model: alias, operation: "edit", body: {
         kind: "multipart", fields: { model: [alias], prompt: ["edit"], n: ["1"], size: ["1:1"], quality: ["2k"] },

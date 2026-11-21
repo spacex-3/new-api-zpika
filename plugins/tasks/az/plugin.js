@@ -8,7 +8,7 @@ export const meta = {
   key: "az",
   name: "AZ Images",
   icon: "Gemini.Color",
-  version: "1.0.2",
+  version: "1.0.3",
   author: { name: "QuantumNous" },
   description: { en: "Asynchronous AZ image generation and editing", zh: "AZ 异步图片生成与编辑" },
   baseUrl: "https://cnmoai.com",
@@ -51,7 +51,7 @@ function resolution(size) {
   const width = Number(match[1]), height = Number(match[2]);
   let left = width, right = height;
   while (right) { const remainder = left % right; left = right; right = remainder; }
-  if (!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].includes(width / left + ":" + height / left)) {
+  if (!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "7:3"].includes(width / left + ":" + height / left)) {
     throw new Error("size has an unsupported aspect ratio");
   }
   return Math.max(width, height) <= 1024 ? "1K" : Math.max(width, height) <= 2048 ? "2K" : "4K";
@@ -77,7 +77,7 @@ function normalizeSize(size, quality) {
   while (right) { const remainder = left % right; left = right; right = remainder; }
   const width = widthRatio / left, height = heightRatio / left;
   const aspectRatio = width + ":" + height;
-  if (!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].includes(aspectRatio)) {
+  if (!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "7:3"].includes(aspectRatio)) {
     throw new Error("size has an unsupported aspect ratio");
   }
   const limit = normalizedQuality === "4K" ? 4096 : normalizedQuality === "2K" ? 2048 : 1024;
