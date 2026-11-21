@@ -83,6 +83,37 @@ describe("AZ image tasks", () => {
     expect(az.extractUsageOnComplete({}, { status: "SUCCESS" }, { result: { data: [{ revised_prompt: "no image" }] } })).toEqual({});
   });
 
+  test("accepts client output format hints on JSON, multipart, and generic tasks", () => {
+    for (const output_format of ["png", "jpeg", "jpg", "webp"]) {
+      const value = { ...body, output_format, images: [{ image_url: `data:image/png;base64,${image}` }] };
+      const edit = decode(value, "edit");
+      expect(edit.action).toBe("image_edit");
+      expect(edit.requestBody).toEqual(decode({ ...value, output_format: undefined }, "edit").requestBody);
+      expect(value.output_format).toBe(output_format);
+      const request = az.buildSubmitRequest({ ...driver(edit), requestBody: value });
+      expect(request.body.output_format).toBeUndefined();
+      expect(request.body.response_format).toBe("b64_json");
+      expect(az.extractUsage({ ...driver(edit), usagePurpose: "facts" })).toEqual({ image_count: 1, resolution: "1K" });
+      const multipart = az.protocols.openai_image.decodeRequest({
+        model: alias, operation: "edit", body: {
+          kind: "multipart", fields: { model: [alias], prompt: ["edit"], n: ["1"], output_format: [output_format] },
+          files: [{ ref: "request_file:image", field: "image", mimeType: "image/png", size: 12 }],
+        },
+      });
+      expect(multipart.action).toBe("image_edit");
+      expect(multipart.requestBody.output_format).toBeUndefined();
+    }
+    expect(az.native.createImage({ body: { kind: "json", value: { ...body, output_format: "png" } } }).action).toBe("image_generation");
+    for (const output_format of [null, 1, {}, "gif", "pdf"]) {
+      expect(() => decode({ ...body, output_format })).toThrow("output_format must be");
+    }
+    expect(() => decode({ ...body, output_format: "png", n: 2 })).toThrow("n=1");
+    expect(() => az.buildSubmitRequest({ ...driver(), requestBody: { ...body, output_format: "png", n: 2 } })).toThrow("n=1");
+    // A format hint cannot relabel JPEG bytes as PNG.
+    const jpegTask = { ...view, data: { status: "completed", result: { data: [{ b64_json: "/9j/AA==" }] } } };
+    expect(az.listArtifacts(jpegTask)[0].mimeType).toBe("image/jpeg");
+  });
+
   test("preserves quota machine codes for host refunds and administrator Bark alerts", () => {
     const failure = az.parseTaskResult({}, { status: "failed", error: { code: "insufficient_quota", type: "billing_error", message: "Request failed" } });
     expect(failure.status).toBe("FAILURE");

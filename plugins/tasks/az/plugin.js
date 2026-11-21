@@ -8,7 +8,7 @@ export const meta = {
   key: "az",
   name: "AZ Images",
   icon: "Gemini.Color",
-  version: "1.0.0",
+  version: "1.0.1",
   author: { name: "QuantumNous" },
   description: { en: "Asynchronous AZ image generation and editing", zh: "AZ 异步图片生成与编辑" },
   baseUrl: "https://cnmoai.com",
@@ -112,13 +112,17 @@ function decodeImage(ctx) {
     if (body["async"] === true && !ctx.nativeAsync) throw new Error("Use /az/v1/images/edits for asynchronous multipart uploads");
   }
   for (const key of Object.keys(body)) {
-    if (!["model", "prompt", "size", "n", "response_format", "async", "images", "image", "reference_image_urls"].includes(key)) {
+    if (!["model", "prompt", "size", "n", "response_format", "output_format", "async", "images", "image", "reference_image_urls"].includes(key)) {
       throw new Error("Unsupported AZ image parameter: " + key);
     }
   }
   if (body.n !== undefined && body.n !== 1) throw new Error("AZ supports n=1; submit separate tasks for multiple images");
   if (body["async"] !== undefined && typeof body["async"] !== "boolean") throw new Error("async must be a boolean");
   if (body.response_format !== undefined && !["url", "b64_json"].includes(body.response_format)) throw new Error("response_format must be url or b64_json");
+  // Clients sharing Cangyuan's Images surface send this format preference.
+  // AZ has no encoder selection: accept known image formats without forwarding
+  // the hint, and keep serving the actual upstream MIME type without transcoding.
+  if (body.output_format !== undefined && !["png", "jpeg", "jpg", "webp"].includes(body.output_format)) throw new Error("output_format must be png, jpeg, jpg, or webp");
   const model = text(ctx.model || body.model), prompt = text(body.prompt), size = body.size === undefined ? "auto" : text(body.size);
   if (!model || !prompt) throw new Error("model and a non-empty prompt are required");
   resolution(size);
