@@ -8,7 +8,7 @@ export const meta = {
   key: "az",
   name: "AZ Images",
   icon: "Gemini.Color",
-  version: "1.0.5",
+  version: "1.0.6",
   author: { name: "QuantumNous" },
   description: { en: "Asynchronous AZ image generation and editing", zh: "AZ 异步图片生成与编辑" },
   baseUrl: "https://cnmoai.com",
@@ -186,7 +186,12 @@ function decodeImage(ctx) {
   if (ctx.operation === "edit" && images.length === 0) throw new Error("image editing requires at least one reference image");
   if (images.length) request.images = images;
   if (jsonBytes(request) + fileBytes > MAX_BODY_BYTES) throw new Error("AZ image request exceeds the 24 MiB body limit");
-  return { kind: "submit", model: model, action: images.length ? "image_edit" : "image_generation", requestBody: request };
+  return {
+    kind: "submit",
+    model: model,
+    action: ctx.operation === "edit" ? "image_edit" : "image_generation",
+    requestBody: request,
+  };
 }
 
 function imageEntries(data) {

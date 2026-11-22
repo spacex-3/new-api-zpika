@@ -68,6 +68,10 @@ describe("AZ image tasks", () => {
     const url = "https://cdn.example/reference.png?signature=a%2Bb&expires=123";
     for (const images of [[url], [{ image_url: url }], [{ image_url: { url } }], [{ url }]]) {
       const value = { ...body, quality: "2k", size: "1:1", images };
+      const generation = decode(value, "generate");
+      expect(generation.action).toBe("image_generation");
+      expect(generation.requestBody.images).toEqual([{ image_url: url }]);
+      expect(az.buildSubmitRequest({ ...driver(generation), requestBody: value }).url).toEndWith("/v1/images/generations/async");
       const edit = decode(value, "edit");
       expect(edit.action).toBe("image_edit");
       expect(edit.requestBody.images).toEqual([{ image_url: url }]);
@@ -76,6 +80,7 @@ describe("AZ image tasks", () => {
       expect(submit.body.images).toEqual([{ image_url: url }]);
       expect(submit.body.size).toBe("2048x2048");
       expect(az.native.editImage({ body: { kind: "json", value } }).requestBody.images).toEqual([{ image_url: url }]);
+      expect(az.native.createImage({ body: { kind: "json", value } }).action).toBe("image_generation");
     }
     expect(decode({ ...body, reference_image_urls: [url] }, "edit").requestBody.images).toEqual([{ image_url: url }]);
     expect(decode({ ...body, reference_images: [{ url }] }, "edit").requestBody.images).toEqual([{ image_url: url }]);
