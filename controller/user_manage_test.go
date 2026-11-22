@@ -243,14 +243,15 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 		name, mode, action, content string
 		value, wantQuota            int
 		wantTopUp                   bool
+		wantMoney                   float64
 	}{
-		{"add", "add", "user.quota_add", "Increased user quota by 500", 500, 1500, true},
-		{"subtract", "subtract", "user.quota_subtract", "Decreased user quota by 500", 500, 500, false},
-		{"override_up", "override", "user.quota_override", "Overrode user quota from 1000 to 1500", 1500, 1500, true},
-		{"override_down", "override", "user.quota_override", "Overrode user quota from 1000 to 500", 500, 500, false},
-		{"override_unchanged", "override", "user.quota_override", "Overrode user quota from 1000 to 1000", 1000, 1000, false},
-		{"override_zero", "override", "user.quota_override", "Overrode user quota from 1000 to 0", 0, 0, false},
-		{"override_negative", "override", "user.quota_override", "Overrode user quota from 1000 to -1", -1, -1, false},
+		{"add", "add", "user.quota_add", "Increased user quota by 5000000", 5_000_000, 5_001_000, true, 1},
+		{"subtract", "subtract", "user.quota_subtract", "Decreased user quota by 500", 500, 500, false, 0},
+		{"override_up", "override", "user.quota_override", "Overrode user quota from 1000 to 5001000", 5_001_000, 5_001_000, true, 1},
+		{"override_down", "override", "user.quota_override", "Overrode user quota from 1000 to 500", 500, 500, false, 0},
+		{"override_unchanged", "override", "user.quota_override", "Overrode user quota from 1000 to 1000", 1000, 1000, false, 0},
+		{"override_zero", "override", "user.quota_override", "Overrode user quota from 1000 to 0", 0, 0, false, 0},
+		{"override_negative", "override", "user.quota_override", "Overrode user quota from 1000 to -1", -1, -1, false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupManageUserTestDB(t)
@@ -269,6 +270,7 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 				require.Len(t, topUps, 1)
 				assert.Equal(t, model.PaymentProviderAdmin, topUps[0].PaymentProvider)
 				assert.EqualValues(t, tc.wantQuota-1000, topUps[0].Amount)
+				assert.InDelta(t, tc.wantMoney, topUps[0].Money, 0.001)
 				assert.Equal(t, common.TopUpStatusSuccess, topUps[0].Status)
 			} else {
 				assert.Empty(t, topUps)

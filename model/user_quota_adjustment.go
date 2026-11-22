@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
+
+const adminTopUpRMBPerUSD = 0.1
 
 var (
 	ErrInvalidUserQuotaAdjustment = errors.New("invalid user quota adjustment")
@@ -77,10 +78,10 @@ func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuo
 		if after > user.Quota {
 			addedQuota := after - user.Quota
 			paidRMB := 0.0
-			if common.QuotaPerUnit > 0 && operation_setting.USDExchangeRate > 0 {
+			if common.QuotaPerUnit > 0 {
 				paidRMB = decimal.NewFromInt(int64(addedQuota)).
 					Div(decimal.NewFromFloat(common.QuotaPerUnit)).
-					Mul(decimal.NewFromFloat(operation_setting.USDExchangeRate)).
+					Mul(decimal.NewFromFloat(adminTopUpRMBPerUSD)).
 					Round(2).InexactFloat64()
 			}
 			now := common.GetTimestamp()
