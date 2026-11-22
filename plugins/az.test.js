@@ -78,6 +78,14 @@ describe("AZ image tasks", () => {
       expect(az.native.editImage({ body: { kind: "json", value } }).requestBody.images).toEqual([{ image_url: url }]);
     }
     expect(decode({ ...body, reference_image_urls: [url] }, "edit").requestBody.images).toEqual([{ image_url: url }]);
+    expect(decode({ ...body, reference_images: [{ url }] }, "edit").requestBody.images).toEqual([{ image_url: url }]);
+    expect(decode({ ...body, reference_image_url: url }, "edit").requestBody.images).toEqual([{ image_url: url }]);
+    expect(decode({ ...body, image_url: { url } }, "edit").requestBody.images).toEqual([{ image_url: url }]);
+    const legacy = "data:image/png;base64," + image;
+    const cangyuanShape = { ...body, images: [{ url, image_url: legacy }] };
+    expect(decode(cangyuanShape, "edit").requestBody.images).toEqual([{ image_url: url }]);
+    expect(az.buildSubmitRequest({ ...driver(), requestBody: cangyuanShape }).body.images).toEqual([{ image_url: url }]);
+    expect(decode({ ...body, images: [{ url: " ", image_url: url }] }, "edit").requestBody.images).toEqual([{ image_url: url }]);
     for (const url of ["http://cdn.example/image.png", "https://", "https:///image.png", "https://cdn.example/a b.png", "https://user:password@cdn.example/image.png", "https://cdn.example\\image.png"]) {
       expect(() => decode({ ...body, images: [{ image_url: url }] }, "edit")).toThrow("HTTPS URLs");
       expect(() => az.buildSubmitRequest({ ...driver(), requestBody: { ...body, images: [url] } })).toThrow("HTTPS URLs");

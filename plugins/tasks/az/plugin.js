@@ -8,7 +8,7 @@ export const meta = {
   key: "az",
   name: "AZ Images",
   icon: "Gemini.Color",
-  version: "1.0.4",
+  version: "1.0.5",
   author: { name: "QuantumNous" },
   description: { en: "Asynchronous AZ image generation and editing", zh: "AZ 异步图片生成与编辑" },
   baseUrl: "https://cnmoai.com",
@@ -107,11 +107,17 @@ function uploadedImage(file) {
 }
 
 function inlineImage(value, files) {
-  if (value && typeof value === "object") value = value.image_url || value.url;
+  // Cangyuan-compatible clients may send both the canonical `url` and a
+  // legacy `image_url`. Prefer a non-empty `url`, as Cangyuan does, and only
+  // fall back to `image_url`. Unwrap the OpenAI nested image_url form too.
+  for (let depth = 0; value && typeof value === "object" && depth < 3; depth++) {
+    if (value.__fileRef) break;
+    const preferred = typeof value.url !== "string" || text(value.url) ? value.url : undefined;
+    value = preferred !== undefined && preferred !== null ? preferred : value.image_url;
+  }
   if (value && typeof value === "object" && value.__fileRef) {
     return { image_url: uploadedImage(files.find(function (file) { return file.ref === value.__fileRef; })) };
   }
-  if (value && typeof value === "object") value = value.url;
   const url = text(value);
   // AZ downloads HTTPS references itself; preserve signed URLs without fetching locally.
   if (/^https:\/\/[^/\s?#@\\]+(?:[/?#][^\s\\]*)?$/i.test(url)) return { image_url: url };
@@ -142,7 +148,7 @@ function decodeImage(ctx) {
     if (body["async"] === true && !ctx.nativeAsync) throw new Error("Use /az/v1/images/edits for asynchronous multipart uploads");
   }
   for (const key of Object.keys(body)) {
-    if (!["model", "prompt", "size", "quality", "n", "response_format", "output_format", "async", "images", "image", "reference_image_urls"].includes(key)) {
+    if (!["model", "prompt", "size", "quality", "n", "response_format", "output_format", "async", "images", "image", "image_url", "reference", "reference_image", "reference_images", "reference_image_url", "reference_image_urls"].includes(key)) {
       throw new Error("Unsupported AZ image parameter: " + key);
     }
   }
@@ -158,7 +164,7 @@ function decodeImage(ctx) {
   resolution(size);
   const request = { model: model, prompt: prompt, size: size, n: 1, response_format: "b64_json" };
   const images = [];
-  for (const key of ["images", "image", "reference_image_urls"]) {
+  for (const key of ["images", "image", "image_url", "reference", "reference_image", "reference_images", "reference_image_url", "reference_image_urls"]) {
     if (body[key] === undefined) continue;
     const values = Array.isArray(body[key]) ? body[key] : [body[key]];
     for (const value of values) images.push(inlineImage(value, ctx.files || []));
