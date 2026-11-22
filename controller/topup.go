@@ -486,6 +486,7 @@ func EpayNotify(c *gin.Context) {
 		if alreadyDone {
 			logger.LogInfo(c.Request.Context(), common.LogText("Epay duplicate callback ignored trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 		} else {
+			service.QueueRechargeNotification(verifyInfo.ServiceTradeNo)
 			logger.LogInfo(c.Request.Context(), common.LogText("Epay top-up succeeded trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 		}
 	} else {
@@ -591,9 +592,13 @@ func AdminCompleteTopUp(c *gin.Context) {
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
 
-	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP()); err != nil {
+	completed, err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP())
+	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if completed {
+		service.QueueRechargeNotification(req.TradeNo)
 	}
 	common.ApiSuccess(c, nil)
 }

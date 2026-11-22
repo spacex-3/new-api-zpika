@@ -69,7 +69,7 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 			}
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.AuthFlow{}, &model.TwoFA{}, &model.PasskeyCredential{}, &model.UserAccessToken{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.AuthFlow{}, &model.TwoFA{}, &model.PasskeyCredential{}, &model.UserAccessToken{}, &model.TopUp{}))
 	require.NoError(t, logDB.AutoMigrate(&model.Log{}, &model.AuditLog{}))
 	versionQuery := "SELECT version()"
 	if dialect == "sqlite" {
@@ -242,14 +242,15 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, action, content string
 		value, wantQuota            int
+		wantTopUp                   bool
 	}{
-		{"add", "add", "user.quota_add", "Increased user quota by 500", 500, 1500},
-		{"subtract", "subtract", "user.quota_subtract", "Decreased user quota by 500", 500, 500},
-		{"override_up", "override", "user.quota_override", "Overrode user quota from 1000 to 1500", 1500, 1500},
-		{"override_down", "override", "user.quota_override", "Overrode user quota from 1000 to 500", 500, 500},
-		{"override_unchanged", "override", "user.quota_override", "Overrode user quota from 1000 to 1000", 1000, 1000},
-		{"override_zero", "override", "user.quota_override", "Overrode user quota from 1000 to 0", 0, 0},
-		{"override_negative", "override", "user.quota_override", "Overrode user quota from 1000 to -1", -1, -1},
+		{"add", "add", "user.quota_add", "Increased user quota by 500", 500, 1500, true},
+		{"subtract", "subtract", "user.quota_subtract", "Decreased user quota by 500", 500, 500, false},
+		{"override_up", "override", "user.quota_override", "Overrode user quota from 1000 to 1500", 1500, 1500, true},
+		{"override_down", "override", "user.quota_override", "Overrode user quota from 1000 to 500", 500, 500, false},
+		{"override_unchanged", "override", "user.quota_override", "Overrode user quota from 1000 to 1000", 1000, 1000, false},
+		{"override_zero", "override", "user.quota_override", "Overrode user quota from 1000 to 0", 0, 0, false},
+		{"override_negative", "override", "user.quota_override", "Overrode user quota from 1000 to -1", -1, -1, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupManageUserTestDB(t)
@@ -262,6 +263,16 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			require.Contains(t, recorder.Body.String(), `"success":true`)
 			require.NoError(t, db.First(&user, user.Id).Error)
 			assert.Equal(t, tc.wantQuota, user.Quota)
+			var topUps []model.TopUp
+			require.NoError(t, db.Where("user_id = ?", user.Id).Find(&topUps).Error)
+			if tc.wantTopUp {
+				require.Len(t, topUps, 1)
+				assert.Equal(t, model.PaymentProviderAdmin, topUps[0].PaymentProvider)
+				assert.EqualValues(t, tc.wantQuota-1000, topUps[0].Amount)
+				assert.Equal(t, common.TopUpStatusSuccess, topUps[0].Status)
+			} else {
+				assert.Empty(t, topUps)
+			}
 
 			logs, total, err := model.GetAllLogs(model.LogFilter{Type: model.LogTypeTopup}, 0, 20)
 			require.NoError(t, err)

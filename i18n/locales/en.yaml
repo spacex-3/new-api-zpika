@@ -75,6 +75,8 @@ notify.subscription_quota_low_title: "Your subscription quota is running low"
 notify.quota_low_bark: "{{.Prompt}}, remaining quota: {{.Quota}}. Please top up soon"
 notify.quota_low_gotify: "{{.Prompt}}. Your remaining quota is {{.Quota}}. Please top up soon."
 notify.quota_low_email: "{{.Prompt}}. Your remaining quota is {{.Quota}}. Top up soon to keep using the service.<br/>Top-up link: <a href='{{.Link}}'>{{.Link}}</a>"
+notify.recharge_subject: "Customer top-up received: {{.Name}} (#{{.ID}})"
+notify.recharge_content: "Customer: {{.Name}}\nID: {{.ID}}\nEmail: {{.Email}}\nThis top-up: RMB {{.PaidRMB}}\nBalance added: {{.AddedBalance}}\nRemaining balance: {{.RemainingBalance}}\nCumulative top-ups: RMB {{.CumulativePaidRMB}}"
 
 # Channel notices sent to administrators who receive them and to model update watchers
 channel.notify_disabled_subject: "Channel \"{{.Name}}\" (#{{.Id}}) has been disabled"

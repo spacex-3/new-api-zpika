@@ -76,6 +76,8 @@ notify.subscription_quota_low_title: "您的订阅额度即将用尽"
 notify.quota_low_bark: "{{.Prompt}}，剩余额度：{{.Quota}}，请及时充值"
 notify.quota_low_gotify: "{{.Prompt}}，当前剩余额度为 {{.Quota}}，请及时充值。"
 notify.quota_low_email: "{{.Prompt}}，当前剩余额度为 {{.Quota}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{.Link}}'>{{.Link}}</a>"
+notify.recharge_subject: "客户充值到账：{{.Name}}（#{{.ID}}）"
+notify.recharge_content: "客户名字：{{.Name}}\nID：{{.ID}}\n邮箱：{{.Email}}\n本次充值 RMB：¥{{.PaidRMB}}\n本次增加余额：{{.AddedBalance}}\n剩余余额：{{.RemainingBalance}}\n累计充值 RMB：¥{{.CumulativePaidRMB}}"
 
 # Channel notices sent to administrators who receive them and to model update watchers
 channel.notify_disabled_subject: "通道「{{.Name}}」（#{{.Id}}）已被禁用"

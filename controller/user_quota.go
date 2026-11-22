@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -79,5 +80,8 @@ func manageUserQuota(c *gin.Context, req ManageRequest) {
 	operation := model.AuditOperation{Action: action, Params: params}
 	model.RecordLogWithAdminInfo(adjustment.UserID, model.LogTypeTopup,
 		auditContentEN(action, params), auditOperatorInfo(c), &operation, c)
+	if adjustment.TopUpTradeNo != "" {
+		service.QueueRechargeNotification(adjustment.TopUpTradeNo)
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 }

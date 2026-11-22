@@ -94,6 +94,8 @@ const (
 	MsgNotifyQuotaLowBark              = "notify.quota_low_bark"
 	MsgNotifyQuotaLowGotify            = "notify.quota_low_gotify"
 	MsgNotifyQuotaLowEmail             = "notify.quota_low_email"
+	MsgNotifyRechargeSubject           = "notify.recharge_subject"
+	MsgNotifyRechargeContent           = "notify.recharge_content"
 )
 
 // Channel notices sent to administrators who receive them and to model update

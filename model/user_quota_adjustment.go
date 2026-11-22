@@ -2,8 +2,11 @@ package model
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -16,10 +19,11 @@ var (
 // UserQuotaAdjustment is the immutable database snapshot of a committed manual
 // adjustment. Pending relay deductions in the quota cache are not part of it.
 type UserQuotaAdjustment struct {
-	UserID   int
-	Username string
-	Before   int
-	After    int
+	UserID       int
+	Username     string
+	Before       int
+	After        int
+	TopUpTradeNo string
 }
 
 func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuotaAdjustment, error) {
@@ -67,7 +71,30 @@ func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuo
 				return gorm.ErrRecordNotFound
 			}
 		}
-		adjustment = UserQuotaAdjustment{UserID: user.Id, Username: user.Username, Before: user.Quota, After: after}
+		adjustment = UserQuotaAdjustment{
+			UserID: user.Id, Username: user.Username, Before: user.Quota, After: after,
+		}
+		if after > user.Quota {
+			addedQuota := after - user.Quota
+			paidRMB := 0.0
+			if common.QuotaPerUnit > 0 && operation_setting.USDExchangeRate > 0 {
+				paidRMB = decimal.NewFromInt(int64(addedQuota)).
+					Div(decimal.NewFromFloat(common.QuotaPerUnit)).
+					Mul(decimal.NewFromFloat(operation_setting.USDExchangeRate)).
+					Round(2).InexactFloat64()
+			}
+			now := common.GetTimestamp()
+			topUp := TopUp{
+				UserId: user.Id, Amount: int64(addedQuota), Money: paidRMB,
+				TradeNo:       fmt.Sprintf("ADMINUSR%dNO%d%s", user.Id, time.Now().UnixNano(), common.GetRandomString(6)),
+				PaymentMethod: PaymentMethodAdmin, PaymentProvider: PaymentProviderAdmin,
+				CreateTime: now, CompleteTime: now, Status: common.TopUpStatusSuccess,
+			}
+			if err := tx.Create(&topUp).Error; err != nil {
+				return err
+			}
+			adjustment.TopUpTradeNo = topUp.TradeNo
+		}
 		return nil
 	})
 	if err != nil {
