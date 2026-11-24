@@ -17,6 +17,8 @@ const view = { task_id: "task_public", status: "SUCCESS", created_at: 100, data:
 
 describe("AZ image tasks", () => {
   test("keeps Cangyuan client modes, aliases, and image query routes", () => {
+    expect(az.meta.version).toBe("1.1.0");
+    expect(az.meta.baseUrl).toBe("http://az-proxy:8080");
     expect(az.meta.routes.filter((route) => route.type === "query").map((route) => route.path)).toEqual(
       cangyuan.meta.routes.filter((route) => route.path.startsWith("/v1/images/")).map((route) => route.path),
     );
