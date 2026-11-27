@@ -13,7 +13,75 @@ permissions:
   packages: write
 
 jobs:
+  regression:
+    name: Task and relay compatibility checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOWORK: 'off'
+      TEST_MYSQL_DSN: root:test-only@tcp(127.0.0.1:3306)/newapi_test?charset=utf8mb4&parseTime=True&loc=Local
+      TEST_POSTGRES_DSN: host=127.0.0.1 port=5432 user=postgres password=test-only dbname=newapi_test sslmode=disable
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: newapi_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -ptest-only"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: newapi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d newapi_test"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            relaykit/go.sum
+            tokenkit/go.sum
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+
+      - name: Create frontend placeholder for backend tests
+        run: |
+          mkdir -p web/dist
+          touch web/dist/index.html
+
+      - name: Verify unfinished tasks on SQLite, MySQL and PostgreSQL
+        run: go test -count=1 -v ./model -run '^TestUnfinishedTaskQueriesDatabaseMatrix$'
+
+      - name: Verify tasks, billing, media, authentication and synchronous relay
+        # Other packages initialize global database state for their own fixtures.
+        # The external engines are used only by the explicit matrix above.
+        run: |
+          unset TEST_MYSQL_DSN TEST_POSTGRES_DSN
+          go test -count=1 -p 2 ./model ./service ./controller ./middleware ./relay ./relay/common ./relay/helper ./relay/channel/task/jsplugin ./relay/channel/openai ./plugins ./pkg/jsplugin ./setting/system_setting
+
+      - name: Verify AZ plugin and R2 worker
+        run: |
+          bun test plugins/az.test.js
+          bun test workers/task-artifact-r2/src/index.test.js
+
   build:
+    needs: regression
     runs-on: ubuntu-latest
     steps:
       - name: Check out
