@@ -20,7 +20,7 @@ jobs:
     env:
       GOWORK: 'off'
       TEST_MYSQL_DSN: root:test-only@tcp(127.0.0.1:3306)/newapi_test?charset=utf8mb4&parseTime=True&loc=Local
-      TEST_POSTGRES_DSN: host=127.0.0.1 port=5432 user=postgres password=test-only dbname=newapi_test sslmode=disable
+      TEST_POSTGRES_DSN: postgres://postgres:test-only@127.0.0.1:5432/newapi_test?sslmode=disable
     services:
       mysql:
         image: mysql:8.0
@@ -65,23 +65,61 @@ jobs:
           mkdir -p web/dist
           touch web/dist/index.html
 
-      - name: Verify unfinished tasks on SQLite, MySQL and PostgreSQL
-        run: go test -count=1 -v ./model -run '^TestUnfinishedTaskQueriesDatabaseMatrix$'
+      - name: Verify tasks and group visibility on SQLite, MySQL and PostgreSQL
+        run: |
+          go test -count=1 -v ./model -run '^TestUnfinishedTaskQueriesDatabaseMatrix$'
+          go test -count=1 -v ./controller -run '^TestModelSquareGroupVisibility$'
+
+      - name: Build and test relaykit independently
+        working-directory: relaykit
+        run: |
+          go build ./...
+          go test -count=1 -p 2 ./...
 
       - name: Verify tasks, billing, media, authentication and synchronous relay
         # Other packages initialize global database state for their own fixtures.
         # The external engines are used only by the explicit matrix above.
         run: |
           unset TEST_MYSQL_DSN TEST_POSTGRES_DSN
-          go test -count=1 -p 2 ./model ./service ./controller ./middleware ./relay ./relay/common ./relay/helper ./relay/channel/task/jsplugin ./relay/channel/openai ./plugins ./pkg/jsplugin ./setting/system_setting
+          go test -count=1 -p 2 ./model ./service ./controller ./middleware ./relay ./relay/common ./relay/helper ./relay/channel/task/jsplugin ./relay/channel/openai ./relay/channel/gemini ./relay/channel/claude ./router ./pkg/perf_metrics ./plugins ./pkg/jsplugin ./setting/system_setting
 
       - name: Verify AZ plugin and R2 worker
         run: |
           bun test plugins/az.test.js
           bun test workers/task-artifact-r2/src/index.test.js
 
+  frontend-regression:
+    name: Frontend types and group visibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun check -b
+
+      - name: Verify dashboard and public performance views
+        run: bun run test src/features/performance-metrics/__tests__/summary.test.tsx
+
+      - name: Lint and check formatting for performance views
+        run: |
+          bun x --no-install oxlint -c .oxlintrc.json src/features/performance-metrics/api.ts src/features/performance-metrics/__tests__/summary.test.tsx src/features/dashboard/components/models/performance-overview.tsx src/features/dashboard/components/overview/performance-health-panel.tsx
+          bun x --no-install oxfmt --check src/features/performance-metrics/api.ts src/features/performance-metrics/__tests__/summary.test.tsx src/features/dashboard/components/models/performance-overview.tsx src/features/dashboard/components/overview/performance-health-panel.tsx
+
   build:
-    needs: regression
+    needs: [regression, frontend-regression]
     runs-on: ubuntu-latest
     steps:
       - name: Check out
