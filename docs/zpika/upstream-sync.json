@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-11-28",
+  "upstream_repository": "https://github.com/QuantumNous/new-api",
+  "full_merge_base": "bd6bb53019fb7e21804b31ab7365c9b2097f4b6c",
+  "base_nearest_tag": "v1.0.0-rc.49",
+  "comparison_target": {
+    "commit": "04dfcbb7128982d78b63a2ecb15f6d20c7305f44",
+    "tag": "v1.0.0-rc.52"
+  },
+  "release_commit": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+  "image": "ghcr.io/spacex-3/new-api-zpika:sha-3f9f5c3",
+  "build_run": "https://github.com/spacex-3/new-api-zpika/actions/runs/46033034760",
+  "backports": [
+    {
+      "upstream_commit": "4407b8470f4a7e286247da2b59e674639d158dec",
+      "landed_in": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+      "summary": "任务进度 100% 后继续轮询并进入成功/失败处理",
+      "method": "原补丁移植",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "48f9df96ea7c68eae04a0f3687869f232f48929f",
+      "landed_in": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+      "summary": "私有渠道同源媒体下载",
+      "method": "原补丁移植",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "1c63cc8c903630cf16611515d81b9785134daf19",
+      "landed_in": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+      "summary": "请求错误不误禁渠道",
+      "method": "移植；参数覆盖测试并入现有测试文件",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "3a407cc9b064fe79a4ffac4146b2690c465dc929",
+      "landed_in": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+      "summary": "已删除用户的 API Key 返回 401",
+      "method": "原补丁移植",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "5cc159213b0df1243acebfdb18cecb6f7879ddc4",
+      "landed_in": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+      "summary": "JSON 构建纯文本 multipart 请求",
+      "method": "适配旧版宿主；不引入新凭据运行时",
+      "status": "backported"
+    }
+  ],
+  "pending_commits": [
+    {
+      "commit": "0409deccfff2b0e8babc28ca552af44d526375bf",
+      "subject": "fix(deepseek): map developer role to system for chat completions (#8287)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "579573ac74513736e83842b6ed243c261de16dd4",
+      "subject": "feat(payment): 易支付支持 RSA 签名方式 (#8291)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "be5e3153d9734ac0a24220d0694fc3fad2f208d3",
+      "subject": "fix(channels): 切换渠道时重置模型重定向同步状态 (#8304)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "a9932d1f98276d93ff4f61e04cddfbd04de01467",
+      "subject": "fix(web): sync risk confirmation text on composition end and blur",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "f3d8b737b64842df0365c2a6696c276fbc409193",
+      "subject": "perf: 升级 MoeForge moejs/moego，请求体按需流式读取 (#8311)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "7b857f5a1e91a1109189d06f1fc1abca50d53f96",
+      "subject": "feat(plugins): add provider plugins, request plugins and a community marketplace (#8271)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "f2aa91232ed3e5878a614762ace6736a2b74257f",
+      "subject": "chore(plugins): release vertex-ai 1.3.1 (#8313)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "0bda086fb4c2f83ac0397e4a60d90686578d67ad",
+      "subject": "chore(web-deps): upgrade frontend dependencies (#6999)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "6ef123cd5bad027b1aa7627e473b9910c05be346",
+      "subject": "perf(password): improve password validation and feedback (#6928)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "87c8848f3c441c72553eefa3fa0f4963c6c8d632",
+      "subject": "fix(i18n): name the super admin in the compliance lock notice (#6955)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "b20e0566b235716383da42450c6c536689de9b43",
+      "subject": "fix(web): align TanStack router devtools with the router core (#8320)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "1122e0f78371ed6b98752ea0ed92cf80eaf75d23",
+      "subject": "fix(web): keep channel plugin settings inside the drawer (#8323)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "c9c6da2786b6a0912215127e78e28fbc6650c85f",
+      "subject": "fix: 升级 moego 到 v0.1.0-alpha.3，修复无 AVX 的 x86-64 CPU 上的 SIGILL 崩溃 (#8322)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "e00ec88194a83c0efa85185cb86242fa69fafd17",
+      "subject": "feat: add doubao-seedream-5-5-261028 (#8324)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "b388140acfd80369ec6243b16869daff1b4051f4",
+      "subject": "docs(plugins): recommend a summary length that fits one marketplace line",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "57345547be11b8cc0d58252622d7319545fc6fdd",
+      "subject": "feat(plugins): 请求处理插件可声明作用范围，管理员确认一次即自动覆盖 (#8335)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "09ac035a2ab28371421943e33898b595501e5988",
+      "subject": "fix(plugins): match each request plugin scope on its own (#8341)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "288dea5499571c40aceee6c8b47b726fb6d21bc8",
+      "subject": "docs(github): slim agent issue and PR templates (#8344)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "f36c460f0e86bb814c88642daf3e4764a3886a8a",
+      "subject": "docs(github): let core maintainers skip agent issue and PR templates (#8352)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "ab85ae75d9e8b720daa85b2768c058361ae1459c",
+      "subject": "fix(web): collapse special group ratio rules by default",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "ce8fc49e4b1a874aa917dce4f1a8416c52ec8ec0",
+      "subject": "fix(channel): read batch tag changes within the transaction",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "bb30732b839781aac57c4b084226d134c9d2d04b",
+      "subject": "fix(web): unify cache billing categories and duration labels",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "e8c6a5d953afe874345f7b6031f6b3cf1f4d7ed3",
+      "subject": "fix(relaykit): join Gemini text parts verbatim in chat responses (#8136)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "669d774976369e986f03b6e24fff1042f6f94832",
+      "subject": "fix(relaykit): map Gemini 4 thinking levels per model (#8367)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "3546e93827a3ea3e97e9f5c1a90a8567830edd78",
+      "subject": "fix(relay): apply GPT-6 chat parameter rules to gpt-6.2-astra and gpt-6.2-sol (#8375)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "58f786fbfed6fe616a8eafb1d9d4cb51bbe268ec",
+      "subject": "docs(security): document expected access to Midjourney images (#8383)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "a1d1fb0cca76d3a1a7f3a1995d09abd1e9804c73",
+      "subject": "docs(security): clarify scope for root-published site content (#8384)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "b2d12187a07b884eec601589992aa4a93714f30c",
+      "subject": "perf(relay): parallelize image compression with moego WebP",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "329e899ebeee564907ddd9298eb0e5182197ac9e",
+      "subject": "fix: 修复图片任务插件参数覆盖并补充百炼回归测试 (#8027)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "a85f7e844d79e705d63d8a3ae38e05624861995e",
+      "subject": "fix(relaykit): match Gemini 4 thinking levels by family prefix (#8412)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "ac1330c5c86c3dccd560068706321050de15ea16",
+      "subject": "feat(kling): map sizes to the 4:3 and 3:4 aspect ratios of kling-4.0 (#8348)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "8542c9d6490b4330fe18160930f81ae7428bc777",
+      "subject": "fix(pricing): 修复模型广场显示私有分组的问题",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "185e1e51a0110b09098f466cebbdf4633cea2855",
+      "subject": "chore(deps): 升级 moego 至 v0.1.0-alpha.5 并统一正则库",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "1a395c76a9c4111fe83080297b9fd0dfe6600025",
+      "subject": "fix(payment): verify partner ID on Epay RSA callbacks (#8422)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "51a1ceeaec14ede2130ade924dcc46a6316a49a5",
+      "subject": "fix(deepseek): report supported endpoint metadata (#8296)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "ede88eb1cc8383131d28b60dc86cdbe9194a84a9",
+      "subject": "feat(plugins): 支持批量更新已安装的市场插件",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "cb074d31e296b53ce252d402a7063079cbf7f990",
+      "subject": "fix(pricing): 按阶梯展示价格同步中的上游表达式",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "c53dcf3356744bbb50fc61cb72af05053caed2f6",
+      "subject": "fix(relaykit): report cached tokens in Gemini usageMetadata built from chat usage (#8333)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "6627f0e3f37c002564b630a73e5afb0d28a92d3b",
+      "subject": "chore(deps): bump go.opentelemetry.io/otel/trace from 1.41.0 to 1.47.0 (#8326)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "def76a60d6453525c11cbb03cae3d279a826e6f0",
+      "subject": "feat(plugins): 放宽插件响应和 JSON 克隆的大小限制",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "c27abf36268001ebfcf4f478ba0f7bae1c19de22",
+      "subject": "feat(pricing): 模型广场支持推荐顺序和按用量排序",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "81c1fd20efade39a5d5692c8018dfef4cfb30e1d",
+      "subject": "fix(models): 打开排序弹窗时再读取系统选项 (#8454)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "fde819b05adfb057059f5efddf24b74fbdf97160",
+      "subject": "fix(groups): 匿名请求公开分组接口时跳过用户分组查询 (#8461) (#8463)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "00056f5db7cc672155eec76d22623c78a16ce6ef",
+      "subject": "Merge commit from fork",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "5f8525d83ce2d0bd5ca339be9f22d792bf20160f",
+      "subject": "fix(claude): map output_tokens_details.thinking_tokens to reasoning_tokens (#8431)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "3333fc67661f35eed392e3e8cb2bc9fe7277c638",
+      "subject": "fix(gemini): bill audio inlineData by length, not as images, when usage is missing (#8193)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "caa32a3012fad325b51c737f3d4c897671742a27",
+      "subject": "fix(relay): remove trailing newline from ClaudeChunkData data frame (#8474)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "0c1be7b1a97f07a36ef50072381abb2b6aac9432",
+      "subject": "refactor(plugins): 把插件 API v1 拆成独立模块 pluginkit (#8475)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "5ff8157dd22cf37764cb963bd455bbf6687d3ec3",
+      "subject": "fix(relaykit): flatten top-level oneOf/anyOf/allOf in Claude input_schema (#8476)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "dc2750cd5d233efc4ad0f855c91431c39f992ff1",
+      "subject": "fix(pluginkit): 单独构建时使用仓库内的 relaykit (#8477)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "d6ab606bd361fb96f14b1eabd7707103a800e667",
+      "subject": "feat(hailuo): support MiniMax-H3-Max with its own durations, resolutions and usage profile (#8453)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "bea3616473070fc1c6060e4b029fd66429c1d5f8",
+      "subject": "feat(relay): 路由转换器支持 OpenAI Responses 转 Anthropic Messages (#8465)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "92866e5eac0c20b534d487c0d48ae49620297da9",
+      "subject": "feat(plugin): 提供商插件的路由可按渠道配置开关（enabled_by） (#8478)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "5456425f98d8c64a5caedfd6e1398339c7edbc46",
+      "subject": "Revert \"feat(plugin): 提供商插件的路由可按渠道配置开关（enabled_by） (#8478)\" (#8479)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "50a9767024d11560558c1958ba6491e2c138eabd",
+      "subject": "fix(relay): return 404 for models missing from all eligible groups (#8480)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "d35242c55f2519664394ba253af6b0b6eff18ace",
+      "subject": "chore(plugins): release Kling 1.2.1",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "944464420b831fb04ed407bab0203b57e2a0b438",
+      "subject": "feat(plugin): 插件渠道可按渠道开关提供商插件的路由 (#8482)",
+      "status": "not_integrated"
+    },
+    {
+      "commit": "04dfcbb7128982d78b63a2ecb15f6d20c7305f44",
+      "subject": "docs(agents): fix stale facts and trim repeated rules in agent instructions",
+      "status": "not_integrated"
+    }
+  ],
+  "counts": {
+    "upstream_commits_since_base": 63,
+    "backported_commits": 5,
+    "pending_commits": 58,
+    "git_ancestry_behind": 63
+  }
+}
