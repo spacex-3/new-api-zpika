@@ -345,5 +345,73 @@
     "backported_commits": 5,
     "pending_commits": 58,
     "git_ancestry_behind": 63
+  },
+  "deployment": {
+    "status": "deployed_verified",
+    "deployed_at": "2026-11-28T03:20:44.692668+00:00",
+    "platform": "linux/arm64",
+    "service": "new-api-vip",
+    "previous_release": "da2a4ce134fe137cee662b31469e743052e12206",
+    "release_commit": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
+    "image": "ghcr.io/spacex-3/new-api-zpika:sha-3f9f5c3",
+    "image_id": "sha256:bb9de28edc999ef0553f203edeabcc93844fd372463089c1b871fc0134c58f61",
+    "manifest_index_digest": "sha256:3b3a9fbcf821f4107394294b1b3f8b25dce6d736f77795c222bf6ce9c5430cce",
+    "backup": {
+      "database_archive_bytes": 109600141,
+      "archive_toc_verified": true,
+      "compose_backed_up": true,
+      "rollback_image_pinned": true,
+      "rollback_comment_present": true,
+      "location": "restricted_directory_on_arm",
+      "off_host_copy_complete": false
+    },
+    "plugin_overrides": [
+      {
+        "key": "az",
+        "version": "1.1.0",
+        "source_hash": "60be57a64a3bd7e59480ae735d180f3dbb0addeb535d5cba1268804f0c3da53c"
+      },
+      {
+        "key": "cangyuan",
+        "version": "1.1.1",
+        "source_hash": "a3e2a31428e2dbd458cba3f280c4750d09faa6e8d17176f8524ff684c5c95379"
+      },
+      {
+        "key": "doubao",
+        "version": "1.4.3",
+        "source_hash": "19eaef9932cebbf4bb0068ef84a154d55d23c90d2cb5bdabf134ba83bce7b338"
+      },
+      {
+        "key": "maitoken",
+        "version": "1.1.4",
+        "source_hash": "dc56257e3b545fba2464bdd570d6072f51da01c4ee23ec392f4bde110400d251"
+      }
+    ],
+    "verification": {
+      "container_health": "healthy",
+      "restart_count": 0,
+      "other_running_containers_unchanged": true,
+      "plugin_overrides_unchanged": true,
+      "site_options_unchanged": true,
+      "channel_configuration_unchanged": true,
+      "channel_count": 55,
+      "pricing_count": 78,
+      "sync_request_http": 200,
+      "consume_log_observed": true,
+      "historical_task_artifacts_http": 200,
+      "recent_signed_media_head_http": 200,
+      "new_paid_generation_tested": false,
+      "live_failure_refund_tested": false,
+      "password_login_tested": false,
+      "schema_changes_introduced": false
+    },
+    "old_images_cleaned": false,
+    "notes": [
+      "Grok upstream timeouts/500 observed before and after; ordinary model traffic succeeds.",
+      "Python media probe received Cloudflare 1010; browser User-Agent curl HEAD succeeds.",
+      "Expired historical media samples return 410.",
+      "Pricing JSON array order is unstable; compare persistent configuration, not unsorted response hashes."
+    ],
+    "verified_at": "2026-11-28T03:28:15.156436+00:00"
   }
 }
