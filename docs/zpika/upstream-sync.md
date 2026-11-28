@@ -8,16 +8,16 @@
 | --- | --- |
 | 完整上游基线 | `bd6bb53019fb7e21804b31ab7365c9b2097f4b6c`（2026-11-09；最近祖先标签 `v1.0.0-rc.49`） |
 | 本次比较的上游 | `04dfcbb7128982d78b63a2ecb15f6d20c7305f44`，`v1.0.0-rc.52` |
-| 当前业务代码 | `3f9f5c3090c8ca6977d2452c2c87d5061d539aa1` |
-| 固定镜像 | `ghcr.io/spacex-3/new-api-zpika:sha-3f9f5c3` |
-| GitHub 测试和镜像构建 | [46033034760](https://github.com/spacex-3/new-api-zpika/actions/runs/46033034760)，成功，amd64 / arm64 |
+| 最新业务代码 | `ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19` |
+| 新版本固定镜像 | `ghcr.io/spacex-3/new-api-zpika:sha-ec3b6d0`（已发布 amd64 / arm64） |
+| GitHub 测试和镜像构建 | [46134721348](https://github.com/spacex-3/new-api-zpika/actions/runs/46134721348)，全部成功 |
 | ARM 部署 | 2026-11-28 11:20（北京时间）完成；`da2a4ce` → `3f9f5c3`，arm64，healthy |
 
-**这是旧基线加 5 项回移修复，不是完整升级到 rc.52。** 基线之后共 63 个上游提交，5 个已按下面的映射移植，58 个未集成。后者包括功能、修复、文档、重构及撤销提交，并不等于 58 个缺陷。基线仅在真正合入完整上游历史后推进。
+**这是旧基线加 14 项回移修复，不是完整升级到 rc.52。** 基线之后共 63 个上游提交，14 个已按下面的映射移植，49 个未集成。后者包括功能、修复、文档、重构及撤销提交，并不等于 49 个缺陷。第二批仅发布代码与镜像，ARM 仍运行第一批 `3f9f5c3`。基线仅在真正合入完整上游历史后推进。
 
-本次将多个修复合并为一个二开提交，因此 Git ancestry 仍显示落后 63 个上游提交。这个数字不会自动扣除手工移植内容；以本台账映射核对，不能只看 ahead/behind，也不能用 ours 合并伪造已同步历史。
+第一批将多个修复合并为一个二开提交，第二批使用 `cherry-pick -x`，因此 Git ancestry 仍显示落后 63 个上游提交。这个数字不会自动扣除手工移植内容；以本台账映射核对，不能只看 ahead/behind，也不能用 ours 合并伪造已同步历史。
 
-## 已移植修复
+## 第一批已移植修复
 
 | 上游提交 | 修复 | 移植方式 |
 | --- | --- | --- |
@@ -29,7 +29,7 @@
 
 所有上述修复落在业务提交 `3f9f5c3090c8ca6977d2452c2c87d5061d539aa1`。保留原任务插件源码、同步/异步调用方式、定价配置与 R2 存储；未引入新供应商/请求插件体系、pluginkit 拆分、依赖升级或敏感词迁移。
 
-## 差异规模与验证
+## 第一批差异规模与验证
 
 以下统计固定到业务提交 `3f9f5c3`，不包含后来新增的本台账：
 
@@ -42,6 +42,60 @@
 - GitHub 完成前端及 Go 镜像编译并发布 amd64 / arm64；后续镜像发布受上述回归检查阻挡。
 
 后续完整同步仍为中高难度：任务路由/即时结果保留、模型计费、错误告警、渠道模型获取及插件运行时是主要冲突区域。前次对 `81c1fd20e` 的预演有 30 个冲突文件；**不是当前 rc.52 的重新预演结果**。最新版已进一步拆分 pluginkit，未来同步前应重新预演。
+
+## 第二批：模型兼容、用量与分组可见性（2026-11-28）
+
+本批将用户同意的六类修复一起处理：GPT-6.2 参数识别、Gemini 文本/思考等级、缓存与思考 token 元数据、Gemini 音频兜底计费、Claude 工具 schema 兼容、私有分组价格与性能数据可见性。共 9 个上游提交，全部原样 `cherry-pick -x`；每个提交保留上游来源。Gemini 思考等级的早期修复由紧随其后的 family-prefix 修复完善，两个来源均保留。
+
+| 上游提交 | 二开提交 | 修复 |
+| --- | --- | --- |
+| `3546e9382` | `7d736e680` | fix(relay): apply GPT-6 chat parameter rules to gpt-6.2-astra and gpt-6.2-sol (#8375) |
+| `e8c6a5d95` | `89760f26c` | fix(relaykit): join Gemini text parts verbatim in chat responses (#8136) |
+| `669d77497` | `c5f2eb553` | fix(relaykit): map Gemini 4 thinking levels per model (#8367) |
+| `a85f7e844` | `23738b494` | fix(relaykit): match Gemini 4 thinking levels by family prefix (#8412) |
+| `c53dcf335` | `a11bf08e4` | fix(relaykit): report cached tokens in Gemini usageMetadata built from chat usage (#8333) |
+| `5f8525d83` | `7e07ad4fe` | fix(claude): map output_tokens_details.thinking_tokens to reasoning_tokens (#8431) |
+| `3333fc676` | `115a4758d` | fix(gemini): bill audio inlineData by length, not as images, when usage is missing (#8193) |
+| `5ff8157dd` | `134d66dd1` | fix(relaykit): flatten top-level oneOf/anyOf/allOf in Claude input_schema (#8476) |
+| `8542c9d64` | `9b7fadd14` | fix(pricing): 修复模型广场显示私有分组的问题 |
+
+额外二开兼容改动：反馈入口 `/api/feedback-page` 补齐 session-only 路由登记，保持原有登录要求及 PAT 拒绝行为；CI 增加 relaykit 独立构建、三数据库分组过滤与前端检查，全部通过后才能发布镜像。PostgreSQL 测试 DSN 改用 URL，以符合控制器测试的本机地址校验。
+
+任务插件源码、宿主契约、依赖版本、数据库结构与迁移均未改动。未合入新插件运行时或 pluginkit 拆分。Claude 顶层联合 schema 转换沿用上游的有损展平策略，并保留诊断标记；不含顶层联合类型的工具定义不受此逻辑影响。Gemini 音频改动只处理缺失 usage 时的估算，避免将 PCM 音频当成图片计量。
+
+差异统计固定到业务提交 `ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19`，不含随后更新的本台账：
+
+- 本批相对 `261050077`：34 文件，+1,607 / -160；其中业务代码 22 文件，+496 / -144，其余为测试与 CI。
+- 二开累计相对完整基线：181 文件，+11,667 / -509（含已有台账文件）。
+- 最新上游 `04dfcbb71` → 二开：658 文件，+19,109 / -88,053（含已有台账文件；同时计入未合入的上游内容）。
+- 本批 9 个补丁无 cherry-pick 冲突；后续完整合并仍为中高风险，主要在任务/插件运行时、计费、渠道、公共路由及前端二开入口；本次未重新做完整合并预演。
+
+实际本地验证（Go 1.26.10、Bun 1.4.4；数据库均在本地临时容器，未接入生产）：
+
+```sh
+GOWORK=off go build -p 2 ./...
+# 以下包分两批运行；路由登记修复后另复测 router 和 middleware。
+GOWORK=off go test -count=1 -p 2 ./model ./service ./controller ./middleware ./relay ./relay/common ./relay/helper ./relay/channel/task/jsplugin ./relay/channel/openai ./relay/channel/gemini ./relay/channel/claude ./router ./pkg/perf_metrics ./plugins ./pkg/jsplugin ./setting/system_setting
+# relaykit/ 下独立执行：
+GOWORK=off go build ./...
+GOWORK=off go test -count=1 -p 2 ./...
+# 设置仅指向本机临时实例的 TEST_MYSQL_DSN / TEST_POSTGRES_DSN 后：
+go test -count=1 -v ./model -run '^TestUnfinishedTaskQueriesDatabaseMatrix$'
+go test -count=1 -v ./controller -run '^TestModelSquareGroupVisibility$'
+bun test plugins/az.test.js workers/task-artifact-r2/src/index.test.js
+# web/ 下：
+bun check -b
+bun run build
+bun run test src/features/performance-metrics/__tests__/summary.test.tsx
+bun x --no-install oxlint -c .oxlintrc.json src/features/performance-metrics/api.ts src/features/performance-metrics/__tests__/summary.test.tsx src/features/dashboard/components/models/performance-overview.tsx src/features/dashboard/components/overview/performance-health-panel.tsx
+bun x --no-install oxfmt --check src/features/performance-metrics/api.ts src/features/performance-metrics/__tests__/summary.test.tsx src/features/dashboard/components/models/performance-overview.tsx src/features/dashboard/components/overview/performance-health-panel.tsx
+```
+
+以上最终检查均通过：16 个根模块包、relaykit 全包；SQLite 3.50.4 / MySQL 8.0.46 / PostgreSQL 15.20 两项矩阵测试；前端 7 项与 AZ/R2 18 项。前端回归先在旧实现验证 3 项失败，再回移实现后全部通过。全仓前端 lint 另有既存无关错误，本次仅对 4 个改动文件完成 lint/格式验证，不宣称全仓 lint 通过。
+
+安全参考：[OWASP ASVS 5.0.0 V8](https://github.com/OWASP/ASVS/blob/v5.0.0_release/5.0/en/0x17-V8-Authorization.md) 的 8.2.1、8.2.2、8.2.3、8.3.1，以及 Authentication、Session Management、Authorization Cheat Sheets。分组过滤在服务端执行，性能接口禁用缓存；管理汇总覆盖匿名 401、普通用户 403、管理员错误 PAT scope 403、管理员 `log:read` 200。这里只验证相关授权路径，不代表完整 ASVS 认证。
+
+发布状态：GitHub 已推送 `ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19`，GitHub 回归与双架构构建全部成功，`docker buildx imagetools inspect` 已确认 amd64 / arm64 镜像存在，索引 digest 为 `sha256:5d8ff08fd8670673992285bbdfd45e59134f7d77a174df3031136bab48b71ba8`。本批未部署 ARM、未进行本批生产收费调用或失败退款试验。第一批用户已确认运行正常；未清理任何生产镜像，线上插件热更新状态仍以此前部署记录为准。
 
 ## ARM 发布记录：2026-11-28
 
@@ -67,7 +121,7 @@
 - 升级前后各一次 `gpt-5.6-luna` 普通同步请求成功，均有 usage 和对应消费日志（每次 quota=6、tokens=16）。上线后另观察到普通模型真实成功流量。
 - 四个常用任务插件的历史成功任务及制品列表读取成功。较新的 cangyuan 图片签名链接经应用 307 跳转后，使用浏览器请求头的 `curl --head --location --max-time 25` 返回 200。Python 默认请求头曾被 Cloudflare 1010 拦截；较旧 AZ/豆包/MaiToken 媒体样本返回 410，首个 AZ 样本升级前后相同。
 - 本次未额外提交收费图片/视频任务，也未在生产主动制造失败/退款；提交、轮询、失败、退款及私有媒体处理的回归以以上 CI 为依据，不能把历史任务读取说成全流程生产实测。
-- 未清理旧镜像。等待用户确认运行正常；回滚时切换 Compose 中相邻的固定旧镜像注释，再执行 `up -d --no-build --no-deps --timeout 130 new-api-vip`。本次未新增 schema 变更，常规应用回滚不需要恢复数据库；数据库备份仅在数据恢复确有需要时使用，避免覆盖上线后的新增交易。
+- 未清理旧镜像。用户已确认运行正常；回滚时切换 Compose 中相邻的固定旧镜像注释，再执行 `up -d --no-build --no-deps --timeout 130 new-api-vip`。本次未新增 schema 变更，常规应用回滚不需要恢复数据库；数据库备份仅在数据恢复确有需要时使用，避免覆盖上线后的新增交易。
 
 ## 每次更新的维护方式
 
@@ -81,10 +135,10 @@
 复核命令（不自动合并或部署）：
 
 ```sh
-git merge-base 3f9f5c3090c8ca6977d2452c2c87d5061d539aa1 origin/main
+git merge-base ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19 origin/main
 git rev-list --count bd6bb53019fb7e21804b31ab7365c9b2097f4b6c..origin/main
 git log --reverse --oneline bd6bb53019fb7e21804b31ab7365c9b2097f4b6c..origin/main
-git diff --shortstat origin/main 3f9f5c3090c8ca6977d2452c2c87d5061d539aa1
+git diff --shortstat origin/main ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19
 ```
 
 ## 尚未集成的上游提交（固定到 rc.52）
@@ -115,33 +169,24 @@ git diff --shortstat origin/main 3f9f5c3090c8ca6977d2452c2c87d5061d539aa1
 | `ab85ae75d` | fix(web): collapse special group ratio rules by default |
 | `ce8fc49e4` | fix(channel): read batch tag changes within the transaction |
 | `bb30732b8` | fix(web): unify cache billing categories and duration labels |
-| `e8c6a5d95` | fix(relaykit): join Gemini text parts verbatim in chat responses (#8136) |
-| `669d77497` | fix(relaykit): map Gemini 4 thinking levels per model (#8367) |
-| `3546e9382` | fix(relay): apply GPT-6 chat parameter rules to gpt-6.2-astra and gpt-6.2-sol (#8375) |
 | `58f786fbf` | docs(security): document expected access to Midjourney images (#8383) |
 | `a1d1fb0cc` | docs(security): clarify scope for root-published site content (#8384) |
 | `b2d12187a` | perf(relay): parallelize image compression with moego WebP |
 | `329e899eb` | fix: 修复图片任务插件参数覆盖并补充百炼回归测试 (#8027) |
-| `a85f7e844` | fix(relaykit): match Gemini 4 thinking levels by family prefix (#8412) |
 | `ac1330c5c` | feat(kling): map sizes to the 4:3 and 3:4 aspect ratios of kling-4.0 (#8348) |
-| `8542c9d64` | fix(pricing): 修复模型广场显示私有分组的问题 |
 | `185e1e51a` | chore(deps): 升级 moego 至 v0.1.0-alpha.5 并统一正则库 |
 | `1a395c76a` | fix(payment): verify partner ID on Epay RSA callbacks (#8422) |
 | `51a1ceeae` | fix(deepseek): report supported endpoint metadata (#8296) |
 | `ede88eb1c` | feat(plugins): 支持批量更新已安装的市场插件 |
 | `cb074d31e` | fix(pricing): 按阶梯展示价格同步中的上游表达式 |
-| `c53dcf335` | fix(relaykit): report cached tokens in Gemini usageMetadata built from chat usage (#8333) |
 | `6627f0e3f` | chore(deps): bump go.opentelemetry.io/otel/trace from 1.41.0 to 1.47.0 (#8326) |
 | `def76a60d` | feat(plugins): 放宽插件响应和 JSON 克隆的大小限制 |
 | `c27abf362` | feat(pricing): 模型广场支持推荐顺序和按用量排序 |
 | `81c1fd20e` | fix(models): 打开排序弹窗时再读取系统选项 (#8454) |
 | `fde819b05` | fix(groups): 匿名请求公开分组接口时跳过用户分组查询 (#8461) (#8463) |
 | `00056f5db` | Merge commit from fork |
-| `5f8525d83` | fix(claude): map output_tokens_details.thinking_tokens to reasoning_tokens (#8431) |
-| `3333fc676` | fix(gemini): bill audio inlineData by length, not as images, when usage is missing (#8193) |
 | `caa32a301` | fix(relay): remove trailing newline from ClaudeChunkData data frame (#8474) |
 | `0c1be7b1a` | refactor(plugins): 把插件 API v1 拆成独立模块 pluginkit (#8475) |
-| `5ff8157dd` | fix(relaykit): flatten top-level oneOf/anyOf/allOf in Claude input_schema (#8476) |
 | `dc2750cd5` | fix(pluginkit): 单独构建时使用仓库内的 relaykit (#8477) |
 | `d6ab606bd` | feat(hailuo): support MiniMax-H3-Max with its own durations, resolutions and usage profile (#8453) |
 | `bea361647` | feat(relay): 路由转换器支持 OpenAI Responses 转 Anthropic Messages (#8465) |

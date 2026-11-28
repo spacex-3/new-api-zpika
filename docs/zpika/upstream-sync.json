@@ -8,9 +8,9 @@
     "commit": "04dfcbb7128982d78b63a2ecb15f6d20c7305f44",
     "tag": "v1.0.0-rc.52"
   },
-  "release_commit": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
-  "image": "ghcr.io/spacex-3/new-api-zpika:sha-3f9f5c3",
-  "build_run": "https://github.com/spacex-3/new-api-zpika/actions/runs/46033034760",
+  "release_commit": "ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19",
+  "image": "ghcr.io/spacex-3/new-api-zpika:sha-ec3b6d0",
+  "build_run": "https://github.com/spacex-3/new-api-zpika/actions/runs/46134721348",
   "backports": [
     {
       "upstream_commit": "4407b8470f4a7e286247da2b59e674639d158dec",
@@ -45,6 +45,69 @@
       "landed_in": "3f9f5c3090c8ca6977d2452c2c87d5061d539aa1",
       "summary": "JSON 构建纯文本 multipart 请求",
       "method": "适配旧版宿主；不引入新凭据运行时",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "3546e93827a3ea3e97e9f5c1a90a8567830edd78",
+      "landed_in": "7d736e680f285f08841e3485cd899bd19b7a2655",
+      "summary": "fix(relay): apply GPT-6 chat parameter rules to gpt-6.2-astra and gpt-6.2-sol (#8375)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "e8c6a5d953afe874345f7b6031f6b3cf1f4d7ed3",
+      "landed_in": "89760f26cab7a7ac300f57741c993a7449f1da27",
+      "summary": "fix(relaykit): join Gemini text parts verbatim in chat responses (#8136)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "669d774976369e986f03b6e24fff1042f6f94832",
+      "landed_in": "c5f2eb55311e5349cd563b6b4bdbc63d7528c09e",
+      "summary": "fix(relaykit): map Gemini 4 thinking levels per model (#8367)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "a85f7e844d79e705d63d8a3ae38e05624861995e",
+      "landed_in": "23738b4945a480cd996e91f115e5aab17a0a3120",
+      "summary": "fix(relaykit): match Gemini 4 thinking levels by family prefix (#8412)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "c53dcf3356744bbb50fc61cb72af05053caed2f6",
+      "landed_in": "a11bf08e470be7babf9f826dd59a13909e938506",
+      "summary": "fix(relaykit): report cached tokens in Gemini usageMetadata built from chat usage (#8333)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "5f8525d83ce2d0bd5ca339be9f22d792bf20160f",
+      "landed_in": "7e07ad4fecc0aa66731cf10445734116849f803e",
+      "summary": "fix(claude): map output_tokens_details.thinking_tokens to reasoning_tokens (#8431)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "3333fc67661f35eed392e3e8cb2bc9fe7277c638",
+      "landed_in": "115a4758d041721478693123e20268c94a1623de",
+      "summary": "fix(gemini): bill audio inlineData by length, not as images, when usage is missing (#8193)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "5ff8157dd22cf37764cb963bd455bbf6687d3ec3",
+      "landed_in": "134d66dd1e6b9e3895c13252c3336ce7d8d3207b",
+      "summary": "fix(relaykit): flatten top-level oneOf/anyOf/allOf in Claude input_schema (#8476)",
+      "method": "git cherry-pick -x; unchanged upstream patch",
+      "status": "backported"
+    },
+    {
+      "upstream_commit": "8542c9d6490b4330fe18160930f81ae7428bc777",
+      "landed_in": "9b7fadd14dc211cc739d1a0ca808220cf4cb9669",
+      "summary": "fix(pricing): 修复模型广场显示私有分组的问题",
+      "method": "git cherry-pick -x; unchanged upstream patch",
       "status": "backported"
     }
   ],
@@ -160,21 +223,6 @@
       "status": "not_integrated"
     },
     {
-      "commit": "e8c6a5d953afe874345f7b6031f6b3cf1f4d7ed3",
-      "subject": "fix(relaykit): join Gemini text parts verbatim in chat responses (#8136)",
-      "status": "not_integrated"
-    },
-    {
-      "commit": "669d774976369e986f03b6e24fff1042f6f94832",
-      "subject": "fix(relaykit): map Gemini 4 thinking levels per model (#8367)",
-      "status": "not_integrated"
-    },
-    {
-      "commit": "3546e93827a3ea3e97e9f5c1a90a8567830edd78",
-      "subject": "fix(relay): apply GPT-6 chat parameter rules to gpt-6.2-astra and gpt-6.2-sol (#8375)",
-      "status": "not_integrated"
-    },
-    {
       "commit": "58f786fbfed6fe616a8eafb1d9d4cb51bbe268ec",
       "subject": "docs(security): document expected access to Midjourney images (#8383)",
       "status": "not_integrated"
@@ -195,18 +243,8 @@
       "status": "not_integrated"
     },
     {
-      "commit": "a85f7e844d79e705d63d8a3ae38e05624861995e",
-      "subject": "fix(relaykit): match Gemini 4 thinking levels by family prefix (#8412)",
-      "status": "not_integrated"
-    },
-    {
       "commit": "ac1330c5c86c3dccd560068706321050de15ea16",
       "subject": "feat(kling): map sizes to the 4:3 and 3:4 aspect ratios of kling-4.0 (#8348)",
-      "status": "not_integrated"
-    },
-    {
-      "commit": "8542c9d6490b4330fe18160930f81ae7428bc777",
-      "subject": "fix(pricing): 修复模型广场显示私有分组的问题",
       "status": "not_integrated"
     },
     {
@@ -232,11 +270,6 @@
     {
       "commit": "cb074d31e296b53ce252d402a7063079cbf7f990",
       "subject": "fix(pricing): 按阶梯展示价格同步中的上游表达式",
-      "status": "not_integrated"
-    },
-    {
-      "commit": "c53dcf3356744bbb50fc61cb72af05053caed2f6",
-      "subject": "fix(relaykit): report cached tokens in Gemini usageMetadata built from chat usage (#8333)",
       "status": "not_integrated"
     },
     {
@@ -270,16 +303,6 @@
       "status": "not_integrated"
     },
     {
-      "commit": "5f8525d83ce2d0bd5ca339be9f22d792bf20160f",
-      "subject": "fix(claude): map output_tokens_details.thinking_tokens to reasoning_tokens (#8431)",
-      "status": "not_integrated"
-    },
-    {
-      "commit": "3333fc67661f35eed392e3e8cb2bc9fe7277c638",
-      "subject": "fix(gemini): bill audio inlineData by length, not as images, when usage is missing (#8193)",
-      "status": "not_integrated"
-    },
-    {
       "commit": "caa32a3012fad325b51c737f3d4c897671742a27",
       "subject": "fix(relay): remove trailing newline from ClaudeChunkData data frame (#8474)",
       "status": "not_integrated"
@@ -287,11 +310,6 @@
     {
       "commit": "0c1be7b1a97f07a36ef50072381abb2b6aac9432",
       "subject": "refactor(plugins): 把插件 API v1 拆成独立模块 pluginkit (#8475)",
-      "status": "not_integrated"
-    },
-    {
-      "commit": "5ff8157dd22cf37764cb963bd455bbf6687d3ec3",
-      "subject": "fix(relaykit): flatten top-level oneOf/anyOf/allOf in Claude input_schema (#8476)",
       "status": "not_integrated"
     },
     {
@@ -342,8 +360,8 @@
   ],
   "counts": {
     "upstream_commits_since_base": 63,
-    "backported_commits": 5,
-    "pending_commits": 58,
+    "backported_commits": 14,
+    "pending_commits": 49,
     "git_ancestry_behind": 63
   },
   "deployment": {
@@ -412,6 +430,77 @@
       "Expired historical media samples return 410.",
       "Pricing JSON array order is unstable; compare persistent configuration, not unsorted response hashes."
     ],
-    "verified_at": "2026-11-28T03:28:15.156436+00:00"
-  }
+    "verified_at": "2026-11-28T03:28:15.156436+00:00",
+    "user_confirmed_normal": true
+  },
+  "build_status": "success",
+  "batch2": {
+    "release_commit": "ec3b6d0cc1f4220e874a52fbf4aeaf232e627e19",
+    "previous_repository_head": "26105007786d0d9f01f4ed4bfa4b18314bb43a39",
+    "upstream_backports": 9,
+    "schema_changes": false,
+    "plugin_source_changes": false,
+    "dependency_changes": false,
+    "deployed": false,
+    "diff_stats": {
+      "batch": {
+        "files": 34,
+        "insertions": 1607,
+        "deletions": 160
+      },
+      "cumulative_from_base_including_existing_tracking_docs": {
+        "files": 181,
+        "insertions": 11667,
+        "deletions": 509
+      },
+      "latest_upstream_to_release_including_existing_tracking_docs": {
+        "files": 658,
+        "insertions": 19109,
+        "deletions": 88053
+      }
+    },
+    "local_validation": {
+      "root_packages": 16,
+      "root_build": "passed",
+      "relaykit_independent_build_and_tests": "passed",
+      "database_matrix": {
+        "SQLite": "3.50.4",
+        "MySQL": "8.0.46",
+        "PostgreSQL": "15.20",
+        "tests": [
+          "TestUnfinishedTaskQueriesDatabaseMatrix",
+          "TestModelSquareGroupVisibility"
+        ],
+        "result": "passed"
+      },
+      "frontend_typecheck_and_build": "passed",
+      "frontend_summary_tests": 7,
+      "frontend_scoped_lint_and_format": "passed",
+      "frontend_repository_lint": "failed on pre-existing unrelated findings; not changed",
+      "az_r2_tests": 18
+    },
+    "security_review": {
+      "asvs_version": "5.0.0",
+      "controls": [
+        "8.2.1",
+        "8.2.2",
+        "8.2.3",
+        "8.3.1"
+      ],
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html",
+        "https://github.com/OWASP/ASVS/blob/v5.0.0_release/5.0/en/0x17-V8-Authorization.md"
+      ],
+      "scope": "Group visibility and admin summary authorization regression only; not a full ASVS assessment."
+    },
+    "github_validation": "regression, frontend-regression and multi-arch image build all passed",
+    "image_manifest_verified": true
+  },
+  "manifest_index_digest": "sha256:5d8ff08fd8670673992285bbdfd45e59134f7d77a174df3031136bab48b71ba8",
+  "published_platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ]
 }
